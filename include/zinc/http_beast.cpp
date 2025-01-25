@@ -1,4 +1,5 @@
 #include "http.hpp"
+
 #include <boost/asio/connect.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/error.hpp>
@@ -7,6 +8,7 @@
 #include <boost/beast/http.hpp>
 #include <boost/beast/ssl.hpp>
 #include <boost/beast/version.hpp>
+#include <boost/beast.hpp>
 #include <boost/url.hpp>
 #include <iostream>
 #include <mutex>
@@ -15,33 +17,15 @@
 #include <unordered_map>
 #include <variant>
 #include <vector>
+
 namespace beast = boost::beast; // from <boost/beast.hpp>
 namespace http = beast::http;   // from <boost/beast/http.hpp>
 namespace net = boost::asio;    // from <boost/asio.hpp>
 namespace ssl = net::ssl;       // from <boost/asio/ssl.hpp>
 using tcp = net::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
 namespace url = boost::urls;
-namespace zinc {
 
-// Helper function to parse URL and extract components
-std::tuple<std::string, std::string, std::string, std::string> parse_url(std::string_view url_str) {
-    auto url_result = url::parse_uri(url_str);
-    if (!url_result) {
-        throw std::runtime_error("Invalid URL format");
-    }
-    const url::url_view url = *url_result;
-    std::string scheme = url.scheme();
-    std::string host = url.host();
-    std::string path = url.path();
-    std::string port = url.port();
-    if (port.empty()) {
-        port = (scheme == "https") ? "443" : "80";
-    }
-    if (path.empty()) {
-        path = "/";
-    }
-    return {scheme, host, path, port};
-}
+namespace zinc {
 
 // Static object to hold io_context, mutex for thread safety, and connection cache
 struct BackendState {
@@ -54,16 +38,32 @@ struct BackendState {
     }
 };
 
-// Helper function to set up the connection and perform SSL handshake if necessary
-template <typename StreamType>
-void setup_connection(StreamType& stream, net::io_context& ioc, const std::string& host, const std::string& port, bool use_ssl) {
-    auto const results = net::ip::tcp::resolver(ioc).resolve(host, port);
-    net::connect(stream.next_layer(), results.begin(), results.end());
-    if constexpr (std::is_same_v<StreamType, beast::ssl_stream<beast::tcp_stream>>) {
-        ssl::context ctx{ssl::context::tlsv12_client};
-        stream.handshake(ssl::stream_base::client);
+struct URL {
+    std::string_view scheme, host, port, path;
+    bool tls;
+};
+
+// Helper function to parse URL and extract components
+URL parse_url(std::string_view url_str) {
+    auto url_result = url::parse_uri(url_str);
+    if (!url_result) {
+        throw std::runtime_error("Invalid URL format");
     }
+    const url::url_view url = *url_result;
+    std::string_view scheme = url.scheme();
+    std::string_view host = url.host();
+    std::string_view path = url.path();
+    std::string_view port = url.port();
+    bool tls = (scheme == "https");
+    if (port.empty()) {
+        port = tls ? "443" : "80";
+    }
+    if (path.empty()) {
+        path = "/";
+    }
+    return {scheme, host, port, path, tls};
 }
+
 
 // Helper function to add custom headers to the request
 void add_headers(http::request<http::string_body>& req, std::span<const std::pair<std::string_view, std::string_view>> headers) {
@@ -72,40 +72,61 @@ void add_headers(http::request<http::string_body>& req, std::span<const std::pai
     }
 }
 
-// Shared helper function for common setup steps
+// Shared helper functions for common setup steps
 template<typename StreamType>
-void prepare_request(const std::string& method, std::string_view url, std::span<const std::pair<std::string_view, std::string_view>> headers, std::string_view body,
-                     StreamType& stream, http::request<http::string_body>& req, std::string& key, bool use_ssl) {
-    auto [scheme, host, path, port] = parse_url(url);
+StreamType connect(URL url, std::string& key) {
     net::io_context& ioc = BackendState::instance().ioc;
-    key = scheme + "://" + host + ":" + port;
+    {
+        std::stringstream ss;
+        ss << url.scheme << "://" << url.host << ":" << url.port;
+        key = std::move(ss.str());
+    }
     // Check if connection is cached
     {
         std::lock_guard<std::mutex> lock(BackendState::instance().mtx);
         auto it = BackendState::instance().connection_cache.find(key);
         if (it != BackendState::instance().connection_cache.end()) {
-            if (use_ssl && std::holds_alternative<beast::ssl_stream<beast::tcp_stream>>(it->second)) {
-                stream = std::move(std::get<beast::ssl_stream<beast::tcp_stream>>(it->second));
-            } else if (!use_ssl && std::holds_alternative<beast::tcp_stream>(it->second)) {
-                stream = std::move(std::get<beast::tcp_stream>(it->second));
-            } else {
-                it = BackendState::instance().connection_cache.end(); // Invalid cache entry
-            }
-            if (it != BackendState::instance().connection_cache.end()) {
-                BackendState::instance().connection_cache.erase(it);
+            if constexpr (std::is_same_v<StreamType, beast::ssl_stream<beast::tcp_stream>>) {
+                if (std::holds_alternative<beast::ssl_stream<beast::tcp_stream>>(it->second)) {
+                    StreamType stream = std::move(std::get<beast::ssl_stream<beast::tcp_stream>>(it->second));
+                    BackendState::instance().connection_cache.erase(it);
+                    if (stream.next_layer().socket().is_open()) { return stream; }
+                }
+            } else if constexpr (std::is_same_v<StreamType, beast::tcp_stream>) {
+                if (std::holds_alternative<beast::tcp_stream>(it->second)) {
+                    StreamType stream = std::move(std::get<beast::tcp_stream>(it->second));
+                    BackendState::instance().connection_cache.erase(it);
+                    if (stream.socket().is_open()) { return stream; }
+                }
             }
         }
     }
-    if (!stream.is_open()) {
-        if (use_ssl) {
-            stream = StreamType{ioc, ssl::context{ssl::context::tlsv12_client}};
-        } else {
-            stream = StreamType{ioc};
+    auto const results = net::ip::tcp::resolver(ioc).resolve(url.host, url.port);
+    if constexpr (std::is_same_v<StreamType, beast::ssl_stream<beast::tcp_stream>>) { 
+        ssl::context ctx{ssl::context::tlsv12_client};
+        ctx.set_default_verify_paths();
+        StreamType stream{ioc, ctx};
+        if (!SSL_set_tlsext_host_name(stream.native_handle(), std::string(url.host).c_str())) {
+            beast::error_code ec{static_cast<int>(::ERR_get_error()), net::error::get_ssl_category()};
+            throw beast::system_error{ec};
         }
-        setup_connection(stream, ioc, host, port, use_ssl);
+        net::connect(stream.next_layer().socket(), results.begin(), results.end());
+        stream.handshake(ssl::stream_base::client);
+        return stream;
+    } else { 
+        StreamType stream{ioc}; 
+        net::connect(stream.socket(), results.begin(), results.end());
+        return stream;
     }
-    req = http::request<http::string_body>{method == "GET" ? http::verb::get : http::verb::post, path, 11};
-    req.set(http::field::host, host);
+}
+template<typename StreamType>
+StreamType prepare_request(const std::string_view method, URL url, std::span<const std::pair<std::string_view, std::string_view>> headers, std::string_view body,
+                     http::request<http::string_body>& req, std::string& key) {
+
+    StreamType stream = connect<StreamType>(url, key);
+
+    req = http::request<http::string_body>{method == "GET" ? http::verb::get : http::verb::post, url.path, 11};
+    req.set(http::field::host, url.host);
     req.set(http::field::user_agent, "zinc-http-client");
     add_headers(req, headers);
     req.set(http::field::connection, "keep-alive");
@@ -113,107 +134,107 @@ void prepare_request(const std::string& method, std::string_view url, std::span<
         req.body() = std::string(body);
         req.prepare_payload();
     }
+
+    return stream;
 }
 
 template<typename StreamType>
 std::string execute_request(StreamType& stream, const http::request<http::string_body>& req) {
     beast::flat_buffer buffer;
-    beast::write(stream, req);
+    http::write(stream, req);
     http::response<http::dynamic_body> res;
     http::read(stream, buffer, res);
     return boost::beast::buffers_to_string(res.body().data());
 }
 
 template<typename StreamType>
-void handle_response(const std::string& key, bool use_ssl, StreamType& stream) {
+void handle_response(const std::string& key, StreamType& stream) {
     std::lock_guard<std::mutex> lock(BackendState::instance().mtx);
-    if (use_ssl) {
-        BackendState::instance().connection_cache[key] = std::move(static_cast<beast::ssl_stream<beast::tcp_stream>&>(stream));
+    if constexpr (std::is_same_v<StreamType, beast::ssl_stream<beast::tcp_stream>>) {
+        BackendState::instance().connection_cache.emplace(key,std::move(static_cast<beast::ssl_stream<beast::tcp_stream>&>(stream)));
     } else {
-        BackendState::instance().connection_cache[key] = std::move(static_cast<beast::tcp_stream&>(stream));
+        BackendState::instance().connection_cache.emplace(key,std::move(static_cast<beast::tcp_stream&>(stream)));
     }
 }
 
-std::string HttpClient::request_string(std::string_view method, std::string_view url, std::span<const std::pair<std::string_view, std::string_view>> headers, std::string_view body) {
+std::string HttpClient::request_string(std::string_view method, std::string_view url_str, std::span<const std::pair<std::string_view, std::string_view>> headers, std::string_view body) {
+    URL url = parse_url(url_str);
     std::string response;
     std::string key;
-    bool use_ssl = (url.find("https://") != std::string::npos);
-    if (use_ssl) {
-        beast::ssl_stream<beast::tcp_stream> stream{BackendState::instance().ioc, ssl::context{ssl::context::tlsv12_client}};
+    if (url.tls) {
+        ssl::context ctx{ssl::context::tlsv12_client};
         http::request<http::string_body> req;
-        prepare_request(method, url, headers, body, stream, req, key, use_ssl);
+        auto stream = prepare_request<beast::ssl_stream<beast::tcp_stream>>(method, url, headers, body, req, key);
         response = execute_request(stream, req);
-        handle_response(key, use_ssl, stream);
+        handle_response(key, stream);
     } else {
-        beast::tcp_stream stream{BackendState::instance().ioc};
         http::request<http::string_body> req;
-        prepare_request(method, url, headers, body, stream, req, key, use_ssl);
+        auto stream = prepare_request<beast::tcp_stream>(method, url, headers, body, req, key);
         response = execute_request(stream, req);
-        handle_response(key, use_ssl, stream);
+        handle_response(key, stream);
     }
     return response;
 }
 
-std::generator<std::string_view> HttpClient::request(std::string_view method, std::string_view url, std::span<const std::pair<std::string_view, std::string_view>> headers, std::string_view body) {
+template <typename StreamType>
+std::generator<std::string_view> process_response(StreamType& stream, http::response_parser<http::dynamic_body>& res_parser) {
+    beast::flat_buffer buffer;
+    do {
+        http::read_some(stream, buffer, res_parser);
+
+        if (buffer.size() == 0) break;
+
+        std::string_view data((char const*)buffer.cdata().data(), buffer.size());
+        size_t start = 0;
+        while ("lines in chunk") {
+            size_t end = data.find('\n', start);
+            if (end == std::string_view::npos) {
+                break;
+            }
+
+            co_yield {data.data() + start, end - start};
+
+            start = end + 1;
+        }
+
+        if (start > 0) {
+            buffer.consume(start);
+        }
+
+    } while (!res_parser.is_done());
+
+    if (buffer.size() > 0) {
+        co_yield {(char const*)buffer.cdata().data(), buffer.size()};
+    }
+}
+
+std::generator<std::string_view> HttpClient::request(std::string_view method, std::string_view url_str, std::span<const std::pair<std::string_view, std::string_view>> headers, std::string_view body) {
+    URL url = parse_url(url_str);
     std::string key;
-    bool use_ssl = (url.find("https://") != std::string::npos);
-    std::string remaining_data;
-    if (use_ssl) {
-        beast::ssl_stream<beast::tcp_stream> stream{BackendState::instance().ioc, ssl::context{ssl::context::tlsv12_client}};
+
+    if (url.tls) {
+        ssl::context ctx{ssl::context::tlsv12_client};
         http::request<http::string_body> req;
-        prepare_request(method, url, headers, body, stream, req, key, use_ssl);
+        auto stream = prepare_request<beast::ssl_stream<beast::tcp_stream>>(method, url, headers, body, req, key);
         beast::flat_buffer buffer;
-        beast::write(stream, req);
-        http::response<http::dynamic_body> res;
-        http::read_header(stream, buffer, res);
-        while (true) {
-            beast::flat_buffer chunk_buffer;
-            http::read_some(stream, chunk_buffer, res.body().data());
-            std::string_view body_data(reinterpret_cast<const char*>(res.body().data().data()), res.body().data().size());
-            body_data = remaining_data + body_data;
-            size_t start = 0;
-            while (true) {
-                size_t end = body_data.find('\n', start);
-                if (end == std::string_view::npos) {
-                    break;
-                }
-                co_yield std::string_view(body_data.data() + start, end - start);
-                start = end + 1;
-            }
-            remaining_data = std::string(body_data.substr(start));
-            if (res.body().data().size() == 0) {
-                break;
-            }
+        http::write(stream, req);
+        http::response_parser<http::dynamic_body> res_parser;
+        http::read_header(stream, buffer, res_parser);
+        for (auto line : process_response(stream, res_parser)) {
+            co_yield line;
         }
-        handle_response(key, use_ssl, stream);
+        handle_response(key, stream);
     } else {
-        beast::tcp_stream stream{BackendState::instance().ioc};
         http::request<http::string_body> req;
-        prepare_request(method, url, headers, body, stream, req, key, use_ssl);
+        auto stream = prepare_request<beast::tcp_stream>(method, url, headers, body, req, key);
         beast::flat_buffer buffer;
-        beast::write(stream, req);
-        http::response<http::dynamic_body> res;
-        http::read_header(stream, buffer, res);
-        while (true) {
-            beast::flat_buffer chunk_buffer;
-            http::read_some(stream, chunk_buffer, res.body().data());
-            std::string_view body_data(reinterpret_cast<const char*>(res.body().data().data()), res.body().data().size());
-            body_data = remaining_data + body_data;
-            size_t start = 0;
-            while (true) {
-                size_t end = body_data.find('\n', start);
-                if (end == std::string_view::npos) {
-                    break;
-                }
-                co_yield std::string_view(body_data.data() + start, end - start);
-                start = end + 1;
-            }
-            remaining_data = std::string(body_data.substr(start));
-            if (res.body().data().size() == 0) {
-                break;
-            }
+        http::write(stream, req);
+        http::response_parser<http::dynamic_body> res_parser;
+        http::read_header(stream, buffer, res_parser);
+        for (auto line : process_response(stream, res_parser)) {
+            co_yield line;
         }
-        handle_response(key, use_ssl, stream);
+        handle_response(key, stream);
     }
 }
 } // namespace zinc
