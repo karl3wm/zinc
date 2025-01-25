@@ -1,11 +1,10 @@
 #pragma once
 
+#include <generator> // C++23 generator support in GCC 14+
+#include <span>
 #include <string>
 #include <string_view>
-#include <span>
-#include <generator> // C++23 generator support in GCC 14+
-#include <map>
-#include <vector>
+#include <unordered_map>
 
 namespace zinc {
 
@@ -24,16 +23,16 @@ public:
      * - presence_penalty: Penalizes new tokens based on their existing frequency.
      * - frequency_penalty: Penalizes new tokens based on their existing frequency.
      *
-     * @param base_url The base URL of the API endpoint (e.g., "https://api.openai.com").
+     * @param url The base URL of the API endpoint (e.g., "https://api.openai.com").
      * @param model The model name to be used (e.g., "text-davinci-003").
-     * @param api_key The API key for authentication.
-     * @param default_params A span of pairs representing default parameters for requests.
+     * @param key The API key for authentication.
+     * @param defaults A span of pairs representing default parameters for requests.
      */
     OpenAIClient(
-        std::string_view base_url,
+        std::string_view url,
         std::string_view model,
-        std::string_view api_key,
-        std::span<const std::pair<std::string_view, std::string_view>> default_params = {}
+        std::string_view key,
+        std::span<std::pair<std::string_view, std::string_view> const> defaults = {}
     );
 
     /**
@@ -43,59 +42,42 @@ public:
 
     /**
      * @brief Generate a single completion based on a prompt.
-     *
-     * @param prompt The input text prompt.
-     * @param params Additional parameters for the request.
-     * @return A generator yielding CompletionItem references.
      */
-    std::generator<CompletionItem&> gen_completion(std::string_view prompt, const std::map<std::string, std::string>& params = {}) const;
+    std::generator<CompletionItem&> gen_completion(std::string_view prompt, std::span<std::pair<std::string, std::string> const> params = {}) const;
 
     /**
      * @brief Generate multiple completions based on a prompt.
      *
-     * @param prompt The input text prompt.
      * @param completions The number of completions to generate (must be >= 2).
-     * @param params Additional parameters for the request.
-     * @return A generator yielding spans of CompletionItem objects.
      */
-    std::generator<std::span<const CompletionItem>> gen_completions(std::string_view prompt, size_t completions, const std::map<std::string, std::string>& params = {}) const;
+    std::generator<std::span<const CompletionItem>> gen_completions(std::string_view prompt, size_t completions,  std::span<std::pair<std::string, std::string> const> params = {}) const;
 
     /**
      * @brief Generate a single chat completion based on a series of messages.
      *
      * @param messages A span of pairs representing role-content messages.
-     * @param params Additional parameters for the request.
-     * @return A generator yielding CompletionItem references.
      */
-    std::generator<CompletionItem&> gen_chat(std::span<const std::pair<std::string_view, std::string_view>> messages, const std::map<std::string, std::string>& params = {}) const;
+    std::generator<CompletionItem&> gen_chat(std::span<std::pair<std::string_view, std::string_view> const> messages, std::span<std::pair<std::string, std::string> const> params = {}) const;
 
     /**
      * @brief Generate multiple chat completions based on a series of messages.
      *
      * @param messages A span of pairs representing role-content messages.
      * @param completions The number of completions to generate (must be >= 2).
-     * @param params Additional parameters for the request.
-     * @return A generator yielding spans of CompletionItem objects.
      */
-    std::generator<std::span<const CompletionItem>> gen_chats(std::span<const std::pair<std::string_view, std::string_view>> messages, size_t completions, const std::map<std::string, std::string>& params = {}) const;
+    std::generator<std::span<const CompletionItem>> gen_chats(std::span<std::pair<std::string_view, std::string_view> const> messages, size_t completions, std::span<std::pair<std::string, std::string> const> params = {}) const;
 
 private:
     struct CompletionItem {
-        std::string_view text; // Actual generated text as a view
-        std::map<std::string, std::string> metadata; // Metadata returned by the server
-        std::span<const std::string_view> additional_data; // Any additional data returned by the server
-
-        // Implicit conversion operator to allow easy use as a string_view
+        std::string_view text; // Actual generated text
+        std::unordered_map<std::string_view, std::string_view> const data; // Raw data returned by the server
         operator std::string_view() const { return text; }
     };
 
-    // Private member variables
     std::string base_url_;
     std::string model_;
     std::string api_key_;
-    std::map<std::string, std::string> default_params_;
-
-    // Helper functions will be implemented in .cpp file
+    std::unordered_map<std::string, std::string> defaults_;
 };
 
 } // namespace zinc
