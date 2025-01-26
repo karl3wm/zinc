@@ -49,21 +49,21 @@ public:
     /**
      * @brief Generate a single completion based on a prompt.
      */
-    std::generator<CompletionItem const&> gen_completion(std::string_view prompt, std::span<std::pair<std::string, std::string> const> params = {}) const;
+    std::generator<CompletionItem const&> gen_completion(std::string_view prompt, std::span<std::pair<std::string_view, std::string_view> const> params = {}) const;
 
     /**
      * @brief Generate multiple completions based on a prompt.
      *
      * @param completions The number of completions to generate (must be >= 2).
      */
-    std::generator<std::span<CompletionItem const>> gen_completions(std::string_view prompt, size_t completions,  std::span<std::pair<std::string, std::string> const> params = {}) const;
+    std::generator<std::span<CompletionItem const>> gen_completions(std::string_view prompt, size_t completions,  std::span<std::pair<std::string_view, std::string_view> const> params = {}) const;
 
     /**
      * @brief Generate a single chat completion based on a series of messages.
      *
      * @param messages A span of pairs representing role-content messages.
      */
-    std::generator<CompletionItem const&> gen_chat(std::span<std::pair<std::string_view, std::string_view> const> messages, std::span<std::pair<std::string, std::string> const> params = {}) const;
+    std::generator<CompletionItem const&> gen_chat(std::span<std::pair<std::string_view, std::string_view> const> messages, std::span<std::pair<std::string_view, std::string_view> const> params = {}) const;
 
     /**
      * @brief Generate multiple chat completions based on a series of messages.
@@ -71,7 +71,7 @@ public:
      * @param messages A span of pairs representing role-content messages.
      * @param completions The number of completions to generate (must be >= 2).
      */
-    std::generator<std::span<CompletionItem const>> gen_chats(std::span<std::pair<std::string_view, std::string_view> const> messages, size_t completions, std::span<std::pair<std::string, std::string> const> params = {}) const;
+    std::generator<std::span<CompletionItem const>> gen_chats(std::span<std::pair<std::string_view, std::string_view> const> messages, size_t completions, std::span<std::pair<std::string_view, std::string_view> const> params = {}) const;
 
 private:
     std::string base_url_;

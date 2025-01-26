@@ -16,6 +16,12 @@ find_package(OpenSSL REQUIRED) # for boost networking
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/include ${Boost_INCLUDE_DIRS})
 
+# Find the nlohmann_json package
+find_package(nlohmann_json QUIET)
+if(NOT nlohmann_json_FOUND)
+    add_subdirectory(third_party/json)
+endif()
+
 # Function to add a test executable
 function(add_test_executable TEST_NAME TEST_SOURCE)
     add_executable(${TEST_NAME} ${TEST_SOURCE})
@@ -35,7 +41,7 @@ endforeach()
 file(GLOB LIB_SOURCES "src/*.cpp")
 add_library(zinc_lib ${LIB_SOURCES})
 target_include_directories(zinc_lib PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(zinc_lib PRIVATE ${Boost_LIBRARIES} ${OPENSSL_LIBRARIES})
+target_link_libraries(zinc_lib PRIVATE ${Boost_LIBRARIES} ${OPENSSL_LIBRARIES} nlohmann_json::nlohmann_json)
 
 # Add tool binaries
 #file(GLOB TOOL_SOURCES "tools/*.cpp") # Assuming you have tools in a 'tools' directory

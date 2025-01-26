@@ -1,14 +1,18 @@
-#include <zinc/http.hhp>
+#include <zinc/http.hpp>
 #include <zinc/openai.hpp>
 
 #include <algorithm>
 #include <stdexcept>
 #include <string_view>
 
+#include <boost/lexical_cast.hpp>
+#include <nlohmann/json.hpp>
+
 namespace zinc {
+using json = nlohmann::json;
 
 // Helper function to validate parameters
-static void validate_params(const std::unordered_map<std::string, std::string>& params, size_t completions = 1) {
+static void validate_params(const std::unordered_map<std::string_view, std::string_view>& params, size_t completions = 1) {
     // Verify that the user either does not specify streaming or has stream set to true.
     if (params.find("stream") != params.end() && params.at("stream") != "true") {
         throw std::invalid_argument("Streaming must be enabled for streaming requests.");
@@ -16,7 +20,7 @@ static void validate_params(const std::unordered_map<std::string, std::string>& 
 
     // Verify that the user either does not specify "n" or has "n" equal to 1 for single completions or equal to "completions" for multiple completions.
     if (params.find("n") != params.end()) {
-        int n = std::stoi(params.at("n"));
+        int n = boost::lexical_cast<int>(params.at("n"));
         if (completions == 1 && n != 1) {
             throw std::invalid_argument("For single completion, 'n' must be 1.");
         } else if (completions > 1 && n != static_cast<int>(completions)) {
@@ -36,13 +40,13 @@ static std::vector<std::pair<std::string_view, std::string_view>> build_headers(
 }
 
 // Helper function to process response lines
-static std::generator<CompletionItem> process_response_lines(std::generator<std::string_view> response_lines) {
+static std::generator<OpenAIClient::CompletionItem const&> process_response_lines(std::generator<std::string_view> & response_lines) {
     for (auto line : response_lines) {
         if (line.empty() || line == "\n") continue; // Skip empty lines
 
         if (line.front() == '{') { // JSON object
-            auto json_obj = parse_json(line); // Assume a function exists to parse JSON into a map
-            yield CompletionItem{json_obj["text"], json_obj};
+            auto json_obj = json::parse(line);
+            co_yield OpenAIClient::CompletionItem{json_obj["text"].get<std::string_view>(), json_obj.get<std::unordered_map<std::string_view, std::string_view>>()};
         } else { // Non-JSON informational string
             // TODO: Implement logging or access to these informational strings later.
             // For now, we skip non-JSON lines but log them for debugging purposes.
@@ -56,55 +60,69 @@ OpenAIClient::OpenAIClient(
     std::string_view model,
     std::string_view key,
     std::span<const std::pair<std::string_view, std::string_view>> defaults)
-    : base_url_(std::string(url)), model_(std::string(model)), api_key_(std::string(key))
+    : base_url_(url), model_(model), api_key_(key)
 {
     for (const auto& [k, v] : defaults) {
-        defaults_[std::string(k)] = std::string(v);
+        defaults_[std::string(k)] = v;
     }
 }
 
 OpenAIClient::~OpenAIClient() = default;
 
-std::generator<CompletionItem const&> OpenAIClient::gen_completion(std::string_view prompt, std::span<const std::pair<std::string, std::string>> params) const {
-    std::unordered_map<std::string, std::string> combined_params = defaults_;
-    for (const auto& [k, v] : params) {
-        combined_params[std::string(k)] = v;
+std::generator<OpenAIClient::CompletionItem const&> OpenAIClient::gen_completion(std::string_view prompt, std::span<const std::pair<std::string_view, std::string_view>> params) const {
+    std::unordered_map<std::string_view, std::string_view> combined_params;
+    for (const auto& [k, v] : defaults_) {
+        combined_params[k] = v;
     }
-    combined_params["prompt"] = std::string(prompt);
+    for (const auto& [k, v] : params) {
+        combined_params[k] = v;
+    }
+    combined_params["prompt"] = prompt;
 
     // Validate parameters
     validate_params(combined_params);
 
     // Build request body
-    std::string body = build_request_body(combined_params); // Assume a function exists to build JSON body from map
+    json j;
+    for (const auto& [key, value] : combined_params) {
+        j[key] = value;
+    }
+    std::string body = j.dump();
+    
 
     // Perform request
     auto headers = build_headers(api_key_);
     auto response_lines = HttpClient::request("POST", base_url_ + "/v1/completions", headers, body);
 
     // Process response lines
-    auto completions = process_response_lines(response_lines);
-    for (auto& item : completions) {
+    for (auto& item : process_response_lines(response_lines)) {
         co_yield item;
     }
 }
 
-std::generator<std::span<CompletionItem const>> OpenAIClient::gen_completions(std::string_view prompt, size_t completions, std::span<const std::pair<std::string, std::string>> params) const {
+std::generator<std::span<OpenAIClient::CompletionItem const>> OpenAIClient::gen_completions(std::string_view prompt, size_t completions, std::span<const std::pair<std::string_view, std::string_view>> params) const {
     if (completions < 2) {
         throw std::invalid_argument("Number of completions must be at least 2.");
     }
 
-    std::unordered_map<std::string, std::string> combined_params = defaults_;
-    for (const auto& [k, v] : params) {
-        combined_params[std::string(k)] = v;
+    std::unordered_map<std::string_view, std::string_view> combined_params;
+    for (const auto& [k, v] : defaults_) {
+        combined_params[k] = v;
     }
-    combined_params["prompt"] = std::string(prompt);
+    for (const auto& [k, v] : params) {
+        combined_params[k] = v;
+    }
+    combined_params["prompt"] = prompt;
 
     // Validate parameters
     validate_params(combined_params, completions);
 
     // Build request body
-    std::string body = build_request_body(combined_params); // Assume a function exists to build JSON body from map
+    json j;
+    for (const auto& [key, value] : combined_params) {
+        j[key] = value;
+    }
+    std::string body = j.dump();
 
     // Perform request
     auto headers = build_headers(api_key_);
@@ -122,18 +140,29 @@ std::generator<std::span<CompletionItem const>> OpenAIClient::gen_completions(st
     }
 }
 
-std::generator<CompletionItem const&> OpenAIClient::gen_chat(std::span<const std::pair<std::string_view, std::string_view>> messages, std::span<const std::pair<std::string, std::string>> params) const {
-    std::unordered_map<std::string, std::string> combined_params = defaults_;
-    for (const auto& [k, v] : params) {
-        combined_params[std::string(k)] = v;
+std::generator<OpenAIClient::CompletionItem const&> OpenAIClient::gen_chat(std::span<const std::pair<std::string_view, std::string_view>> messages, std::span<const std::pair<std::string_view, std::string_view>> params) const {
+    std::unordered_map<std::string_view, std::string_view> combined_params;
+    for (const auto& [k, v] : defaults_) {
+        combined_params[k] = v;
     }
-    combined_params["messages"] = build_messages_param(messages); // Assume a function exists to build messages param from span
+    for (const auto& [k, v] : params) {
+        combined_params[k] = v;
+    }
+    json messages_array = json::array();
+    for (const auto& [role, content] : messages) {
+        messages_array.push_back({{"role", role}, {"content", content}});
+    }
+    combined_params["messages"] = messages_array.dump();
 
     // Validate parameters
     validate_params(combined_params);
 
     // Build request body
-    std::string body = build_request_body(combined_params); // Assume a function exists to build JSON body from map
+    json j;
+    for (const auto& [key, value] : combined_params) {
+        j[key] = value;
+    }
+    std::string body = j.dump();
 
     // Perform request
     auto headers = build_headers(api_key_);
@@ -146,22 +175,33 @@ std::generator<CompletionItem const&> OpenAIClient::gen_chat(std::span<const std
     }
 }
 
-std::generator<std::span<CompletionItem const>> OpenAIClient::gen_chats(std::span<const std::pair<std::string_view, std::string_view>> messages, size_t completions, std::span<const std::pair<std::string, std::string>> params) const {
+std::generator<std::span<OpenAIClient::CompletionItem const>> OpenAIClient::gen_chats(std::span<const std::pair<std::string_view, std::string_view>> messages, size_t completions, std::span<const std::pair<std::string_view, std::string_view>> params) const {
     if (completions < 2) {
         throw std::invalid_argument("Number of completions must be at least 2.");
     }
 
-    std::unordered_map<std::string, std::string> combined_params = defaults_;
-    for (const auto& [k, v] : params) {
-        combined_params[std::string(k)] = v;
+    std::unordered_map<std::string_view, std::string_view> combined_params;
+    for (const auto& [k, v] : defaults_) {
+        combined_params[k] = v;
     }
-    combined_params["messages"] = build_messages_param(messages); // Assume a function exists to build messages param from span
+    for (const auto& [k, v] : params) {
+        combined_params[k] = v;
+    }
+    json messages_array = json::array();
+    for (const auto& [role, content] : messages) {
+        messages_array.push_back({{"role", role}, {"content", content}});
+    }
+    combined_params["messages"] = messages_array.dump();
 
     // Validate parameters
     validate_params(combined_params, completions);
 
     // Build request body
-    std::string body = build_request_body(combined_params); // Assume a function exists to build JSON body from map
+    json j;
+    for (const auto& [key, value] : combined_params) {
+        j[key] = value;
+    }
+    std::string body = j.dump();
 
     // Perform request
     auto headers = build_headers(api_key_);
