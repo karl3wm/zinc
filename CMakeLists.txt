@@ -17,6 +17,7 @@ find_package(OpenSSL REQUIRED) # for boost networking
 include_directories(${CMAKE_SOURCE_DIR}/include ${Boost_INCLUDE_DIRS})
 
 # Find the nlohmann_json package
+message(WARNING "Using nlohmann::json when requiring boost ... boost has json parser ...")
 find_package(nlohmann_json QUIET)
 if(NOT nlohmann_json_FOUND)
     add_subdirectory(third_party/json)
