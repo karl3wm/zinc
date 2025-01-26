@@ -34,14 +34,14 @@ static void validate_params(const std::unordered_map<std::string_view, std::stri
 }
 
 // Helper function to process response lines
-static std::generator<OpenAIClient::CompletionItem const&> process_response_lines(std::generator<std::string_view> & response_lines) {
+static std::generator<OpenAI::CompletionItem const&> process_response_lines(std::generator<std::string_view> & response_lines) {
     for (auto line : response_lines) {
         if (line.empty() || line == "\n") continue; // Skip empty lines
 
         if (line.front() == '{') { // JSON object
             std::cerr << "process_response_lines line: " << line << std::endl;
             auto json_obj = json::parse(line);
-            co_yield OpenAIClient::CompletionItem{json_obj["text"].get<std::string_view>(), json_obj.get<std::unordered_map<std::string_view, std::string_view>>()};
+            co_yield OpenAI::CompletionItem{json_obj["text"].get<std::string_view>(), json_obj.get<std::unordered_map<std::string_view, std::string_view>>()};
         } else { // Non-JSON informational string
             // TODO: Implement logging or access to these informational strings later.
             // For now, we skip non-JSON lines but log them for debugging purposes.
@@ -52,7 +52,7 @@ static std::generator<OpenAIClient::CompletionItem const&> process_response_line
     co_return;
 }
 
-OpenAIClient::OpenAIClient(
+OpenAI::OpenAI(
     std::string_view url,
     std::string_view model,
     std::string_view key,
@@ -70,9 +70,9 @@ OpenAIClient::OpenAIClient(
     }
 }
 
-OpenAIClient::~OpenAIClient() = default;
+OpenAI::~OpenAI() = default;
 
-std::generator<OpenAIClient::CompletionItem const&> OpenAIClient::gen_completion(std::string_view prompt, std::span<const std::pair<std::string_view, std::string_view>> params) const {
+std::generator<OpenAI::CompletionItem const&> OpenAI::gen_completion(std::string_view prompt, std::span<const std::pair<std::string_view, std::string_view>> params) const {
     std::unordered_map<std::string_view, std::string_view> combined_params;
     for (const auto& [k, v] : defaults_) {
         combined_params[k] = v;
@@ -98,7 +98,7 @@ std::generator<OpenAIClient::CompletionItem const&> OpenAIClient::gen_completion
         {"Authorization", bearer_},
         {"Content-Type", "application/json"}
     };
-    auto response_lines = HttpClient::request("POST", endpoint_completions_, headers, body);
+    auto response_lines = Http::request("POST", endpoint_completions_, headers, body);
 
     // Process response lines
     for (auto& item : process_response_lines(response_lines)) {
@@ -108,7 +108,7 @@ std::generator<OpenAIClient::CompletionItem const&> OpenAIClient::gen_completion
     co_return;
 }
 
-std::generator<std::span<OpenAIClient::CompletionItem const>> OpenAIClient::gen_completions(std::string_view prompt, size_t completions, std::span<const std::pair<std::string_view, std::string_view>> params) const {
+std::generator<std::span<OpenAI::CompletionItem const>> OpenAI::gen_completions(std::string_view prompt, size_t completions, std::span<const std::pair<std::string_view, std::string_view>> params) const {
     if (completions < 2) {
         throw std::invalid_argument("Number of completions must be at least 2.");
     }
@@ -137,7 +137,7 @@ std::generator<std::span<OpenAIClient::CompletionItem const>> OpenAIClient::gen_
         {"Authorization", bearer_},
         {"Content-Type", "application/json"}
     };
-    auto response_lines = HttpClient::request("POST", endpoint_completions_, headers, body);
+    auto response_lines = Http::request("POST", endpoint_completions_, headers, body);
 
     // Process response lines
     auto completion_items = process_response_lines(response_lines);
@@ -153,7 +153,7 @@ std::generator<std::span<OpenAIClient::CompletionItem const>> OpenAIClient::gen_
     co_return;
 }
 
-std::generator<OpenAIClient::CompletionItem const&> OpenAIClient::gen_chat(std::span<const std::pair<std::string_view, std::string_view>> messages, std::span<const std::pair<std::string_view, std::string_view>> params) const {
+std::generator<OpenAI::CompletionItem const&> OpenAI::gen_chat(std::span<const std::pair<std::string_view, std::string_view>> messages, std::span<const std::pair<std::string_view, std::string_view>> params) const {
     std::unordered_map<std::string_view, std::string_view> combined_params;
     for (const auto& [k, v] : defaults_) {
         combined_params[k] = v;
@@ -182,7 +182,7 @@ std::generator<OpenAIClient::CompletionItem const&> OpenAIClient::gen_chat(std::
         {"Authorization", bearer_},
         {"Content-Type", "application/json"}
     };
-    auto response_lines = HttpClient::request("POST", endpoint_chats_, headers, body);
+    auto response_lines = Http::request("POST", endpoint_chats_, headers, body);
 
     // Process response lines
     auto completions = process_response_lines(response_lines);
@@ -193,7 +193,7 @@ std::generator<OpenAIClient::CompletionItem const&> OpenAIClient::gen_chat(std::
     co_return;
 }
 
-std::generator<std::span<OpenAIClient::CompletionItem const>> OpenAIClient::gen_chats(std::span<const std::pair<std::string_view, std::string_view>> messages, size_t completions, std::span<const std::pair<std::string_view, std::string_view>> params) const {
+std::generator<std::span<OpenAI::CompletionItem const>> OpenAI::gen_chats(std::span<const std::pair<std::string_view, std::string_view>> messages, size_t completions, std::span<const std::pair<std::string_view, std::string_view>> params) const {
     if (completions < 2) {
         throw std::invalid_argument("Number of completions must be at least 2.");
     }
@@ -226,7 +226,7 @@ std::generator<std::span<OpenAIClient::CompletionItem const>> OpenAIClient::gen_
         {"Authorization", bearer_},
         {"Content-Type", "application/json"}
     };
-    auto response_lines = HttpClient::request("POST", endpoint_chats_, headers, body);
+    auto response_lines = Http::request("POST", endpoint_chats_, headers, body);
 
     // Process response lines
     auto completion_items = process_response_lines(response_lines);

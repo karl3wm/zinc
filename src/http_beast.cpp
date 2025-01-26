@@ -159,7 +159,7 @@ void handle_response(const std::string& key, StreamType& stream) {
     }
 }
 
-std::string HttpClient::request_string(std::string_view method, std::string_view url_str, std::span<const std::pair<std::string_view, std::string_view>> headers, std::string_view body) {
+std::string Http::request_string(std::string_view method, std::string_view url_str, std::span<const std::pair<std::string_view, std::string_view>> headers, std::string_view body) {
     URL url = parse_url(url_str);
     std::string response;
     std::string key;
@@ -223,7 +223,7 @@ std::generator<std::string_view> process_response(StreamType& stream) {
     co_return;
 }
 
-std::generator<std::string_view> HttpClient::request(std::string_view method, std::string_view url_str, std::span<const std::pair<std::string_view, std::string_view>> headers, std::string_view body) {
+std::generator<std::string_view> Http::request(std::string_view method, std::string_view url_str, std::span<const std::pair<std::string_view, std::string_view>> headers, std::string_view body) {
     URL url = parse_url(url_str);
     std::string key;
     http::request<http::string_body> req;

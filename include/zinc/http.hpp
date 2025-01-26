@@ -8,7 +8,7 @@
 
 namespace zinc {
 
-class HttpClient {
+class Http {
 public:
     // Perform an HTTP request (GET or POST) with custom headers and yield lines as they are received
     static std::generator<std::string_view> request(std::string_view method, std::string_view url, std::span<const std::pair<std::string_view, std::string_view>> headers = {}, std::string_view body = {});

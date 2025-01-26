@@ -2,7 +2,7 @@
 #include <iostream>
 #include <vector>
 
-void test_single_completion(zinc::OpenAIClient& client) {
+void test_single_completion(zinc::OpenAI& client) {
     std::string prompt = "Once upon a time";
     auto completion_gen = client.gen_completion(prompt);
 
@@ -23,7 +23,7 @@ void test_single_completion(zinc::OpenAIClient& client) {
     }
 }
 
-void test_multiple_completions(zinc::OpenAIClient& client) {
+void test_multiple_completions(zinc::OpenAI& client) {
     std::string prompt = "Once upon a time";
     size_t num_completions = 3;
     auto completions_gen = client.gen_completions(prompt, num_completions);
@@ -47,7 +47,7 @@ void test_multiple_completions(zinc::OpenAIClient& client) {
     }
 }
 
-void test_single_chat(zinc::OpenAIClient& client) {
+void test_single_chat(zinc::OpenAI& client) {
     std::vector<std::pair<std::string_view, std::string_view>> messages = {
         {"user", "Hello"},
         {"assistant", "Hi there!"}
@@ -71,7 +71,7 @@ void test_single_chat(zinc::OpenAIClient& client) {
     }
 }
 
-void test_multiple_chats(zinc::OpenAIClient& client) {
+void test_multiple_chats(zinc::OpenAI& client) {
     std::vector<std::pair<std::string_view, std::string_view>> messages = {
         {"user", "Hello"},
         {"assistant", "Hi there!"}
@@ -99,13 +99,13 @@ void test_multiple_chats(zinc::OpenAIClient& client) {
 }
 
 int main() {
-    // Initialize the OpenAIClient with URL, model, and API key.
+    // Initialize the OpenAI with URL, model, and API key.
     // These values should be replaced
     std::string url = "https://api.sambanova.ai";
     std::string model = "Meta-Llama-3.1-405B-Instruct";
     std::string key = "d8957211-24e6-426d-90cc-b267ce681e4f";
 
-    zinc::OpenAIClient client(url, model, key);
+    zinc::OpenAI client(url, model, key);
 
     // Run the tests
     test_single_completion(client);

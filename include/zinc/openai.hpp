@@ -9,7 +9,7 @@
 
 namespace zinc {
 
-class OpenAIClient {
+class OpenAI {
 public:
     /**
      * @brief Constructor for initializing the OpenAI client.
@@ -29,7 +29,7 @@ public:
      * @param key The API key for authentication.
      * @param defaults A span of pairs representing default parameters for requests.
      */
-    OpenAIClient(
+    OpenAI(
         std::string_view url,
         std::string_view model,
         std::string_view key,
@@ -37,9 +37,9 @@ public:
     );
 
     /**
-     * @brief Destructor for the OpenAIClient class.
+     * @brief Destructor for the OpenAI class.
      */
-    ~OpenAIClient();
+    ~OpenAI();
 
     struct CompletionItem {
         std::string_view text; // Actual generated text
