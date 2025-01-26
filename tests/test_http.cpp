@@ -4,7 +4,8 @@
 #include <span>
 #include <utility>
 #include <vector>
-#include "http.hpp"  // Assuming your http.hpp header file is in the same directory
+
+#include <zinc/http.hpp>
 
 namespace zinc {
     // Forward declarations of HttpClient methods
