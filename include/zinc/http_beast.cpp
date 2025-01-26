@@ -8,7 +8,6 @@
 #include <boost/beast/http.hpp>
 #include <boost/beast/ssl.hpp>
 #include <boost/beast/version.hpp>
-#include <boost/beast.hpp>
 #include <boost/url.hpp>
 #include <iostream>
 #include <mutex>
@@ -176,23 +175,22 @@ std::string HttpClient::request_string(std::string_view method, std::string_view
 }
 
 template <typename StreamType>
-std::generator<std::string_view> process_response(StreamType& stream, http::response_parser<http::dynamic_body>& res_parser) {
-    beast::flat_buffer buffer;
-    do {
-        http::read_some(stream, buffer, res_parser);
+std::generator<std::string_view> process_response(StreamType& stream, beast::flat_buffer& rotate_buffer, http::response_parser<http::basic_dynamic_body<beast::flat_buffer>>& res_parser) {
+    auto& res_buffer = res_parser.get().body();
+    while (!res_parser.is_done()) {
+        /*size_t bytesRead = */http::read_some(stream, rotate_buffer, res_parser);
 
-        std::cerr << "process_response: read " << buffer.size() << std::endl;
+        if (res_buffer.size() == 0) {
+            break;
+        }
 
-        if (buffer.size() == 0) break;
-
-        std::string_view data((char const*)buffer.cdata().data(), buffer.size());
+        std::string_view data((char const*)res_buffer.cdata().data(), res_buffer.size());
         size_t start = 0;
         while ("lines in chunk") {
             size_t end = data.find('\n', start);
             if (end == std::string_view::npos) {
                 break;
             }
-	        std::cerr << "line length=" << (end-start) << " data=" << std::string_view(data.data()+start,end-start) << std::endl;
 
             co_yield {data.data() + start, end - start};
 
@@ -200,43 +198,42 @@ std::generator<std::string_view> process_response(StreamType& stream, http::resp
         }
 
         if (start > 0) {
-            buffer.consume(start);
+            res_buffer.consume(start);
         }
-
-    } while (!res_parser.is_done());
-
-    if (buffer.size() > 0) {
-        co_yield {(char const*)buffer.cdata().data(), buffer.size()};
     }
+
+    if (res_buffer.size() > 0) {
+        co_yield {(char const*)res_buffer.cdata().data(), res_buffer.size()};
+    }
+
+    co_return;
 }
 
 std::generator<std::string_view> HttpClient::request(std::string_view method, std::string_view url_str, std::span<const std::pair<std::string_view, std::string_view>> headers, std::string_view body) {
     URL url = parse_url(url_str);
     std::string key;
+    http::request<http::string_body> req;
+    beast::flat_buffer rotate_buffer;
+    http::response_parser<http::basic_dynamic_body<beast::flat_buffer>> res_parser;
 
     if (url.tls) {
         ssl::context ctx{ssl::context::tlsv12_client};
-        http::request<http::string_body> req;
         auto stream = prepare_request<beast::ssl_stream<beast::tcp_stream>>(method, url, headers, body, req, key);
-        beast::flat_buffer buffer;
         http::write(stream, req);
-        http::response_parser<http::dynamic_body> res_parser;
-        http::read_header(stream, buffer, res_parser);
-        for (auto line : process_response(stream, res_parser)) {
+        http::read_header(stream, rotate_buffer, res_parser);
+        for (auto line : process_response(stream, rotate_buffer, res_parser)) {
             co_yield line;
         }
         handle_response(key, stream);
     } else {
-        http::request<http::string_body> req;
         auto stream = prepare_request<beast::tcp_stream>(method, url, headers, body, req, key);
-        beast::flat_buffer buffer;
         http::write(stream, req);
-        http::response_parser<http::dynamic_body> res_parser;
-        http::read_header(stream, buffer, res_parser);
-        for (auto line : process_response(stream, res_parser)) {
+        http::read_header(stream, rotate_buffer, res_parser);
+        for (auto line : process_response(stream, rotate_buffer, res_parser)) {
             co_yield line;
         }
         handle_response(key, stream);
     }
+    co_return;
 }
 } // namespace zinc

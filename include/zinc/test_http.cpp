@@ -42,14 +42,12 @@ void test_http_client() {
 
     // Test GET with generator
     std::cout << "Testing GET with generator on HTTP URL:\n";
-    auto gen_response = HttpClient::request("GET", http_get_url, span_headers);
-    for (auto line : gen_response) {
+    for (auto line : HttpClient::request("GET", http_get_url, span_headers)) {
         std::cout << line << "\n";
     }
 
     std::cout << "\nTesting GET with generator on HTTPS URL:\n";
-    gen_response = HttpClient::request("GET", https_get_url, span_headers);
-    for (auto line : gen_response) {
+    for (auto line : HttpClient::request("GET", https_get_url, span_headers)) {
         std::cout << line << "\n";
     }
 
@@ -64,14 +62,12 @@ void test_http_client() {
 
     // Test POST with generator
     std::cout << "\nTesting POST with generator on HTTP URL:\n";
-    gen_response = HttpClient::request("POST", http_post_url, span_headers, post_body);
-    for (auto line : gen_response) {
+    for (auto line : HttpClient::request("POST", http_post_url, span_headers, post_body)) {
         std::cout << line << "\n";
     }
 
     std::cout << "\nTesting POST with generator on HTTPS URL:\n";
-    gen_response = HttpClient::request("POST", https_post_url, span_headers, post_body);
-    for (auto line : gen_response) {
+    for (auto line : HttpClient::request("POST", https_post_url, span_headers, post_body)) {
         std::cout << line << "\n";
     }
 }

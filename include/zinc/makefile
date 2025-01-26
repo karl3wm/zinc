@@ -1,7 +1,7 @@
 CXX=g++-14
-CXXFLAGS=-std=c++26 -ggdb -O0
+CXXFLAGS=-std=c++26 -fcoroutines -ggdb -O0 -Wall -Wextra -ftrapv -fsanitize=address -fsanitize=leak -fsanitize=undefined -pedantic
 LDLIBS=-lssl -lcrypto -lboost_url
-LDFLAGS=-ggdb
+LDFLAGS=$(CXXFLAGS)
 CC=${CXX}
 
 test_http: test_http.o http_beast.o
