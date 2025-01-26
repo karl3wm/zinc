@@ -9,39 +9,50 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Set the output directories for binaries and libraries
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+# Find Boost
+find_package(Boost 1.83.0 REQUIRED COMPONENTS url asio beast)
 
 # Include directories
-include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(${CMAKE_SOURCE_DIR}/include ${Boost_INCLUDE_DIRS})
 
-# Source files
-file(GLOB_RECURSE SOURCES "src/*.cpp")
-file(GLOB_RECURSE TEST_SOURCES "tests/*.cpp")
+# Function to add a test executable
+function(add_test_executable TEST_NAME TEST_SOURCE)
+    add_executable(${TEST_NAME} ${TEST_SOURCE})
+    target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${Boost_INCLUDE_DIRS})
+    target_link_libraries(${TEST_NAME} PRIVATE zinc_lib ${Boost_LIBRARIES})
+    add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+endfunction()
 
-# Add the main executable (if you have one, otherwise remove this block)
-add_executable(zinc_main src/http_beast.cpp)
+# Discover all test source files and create executables for each
+file(GLOB TEST_SOURCES "tests/*.cpp")
+foreach(TEST_SOURCE IN LISTS TEST_SOURCES)
+    get_filename_component(TEST_NAME ${TEST_SOURCE} NAME_WE)
+    add_test_executable(${TEST_NAME} ${TEST_SOURCE})
+endforeach()
 
-# Link any necessary libraries here if needed
-# target_link_libraries(zinc_main ...)
+# Create the main library
+file(GLOB LIB_SOURCES "src/*.cpp")
+add_library(zinc_lib ${LIB_SOURCES})
+target_include_directories(zinc_lib PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(zinc_lib PRIVATE ${Boost_LIBRARIES})
 
-# Add tests
-if(TEST_SOURCES)
-    enable_testing()
-    add_executable(test_zinc ${TEST_SOURCES})
-    target_include_directories(test_zinc PRIVATE ${CMAKE_SOURCE_DIR}/include)
-    target_link_libraries(test_zinc PRIVATE zinc_main) # Link against your main library/executable if necessary
-
-    # Use CTest to run the tests
-    add_test(NAME test_zinc COMMAND test_zinc)
-endif()
+# Add tool binaries
+file(GLOB TOOL_SOURCES "tools/*.cpp") # Assuming you have tools in a 'tools' directory
+foreach(TOOL_SOURCE IN LISTS TOOL_SOURCES)
+    get_filename_component(TOOL_NAME ${TOOL_SOURCE} NAME_WE)
+    add_executable(${TOOL_NAME} ${TOOL_SOURCE})
+    target_link_libraries(${TOOL_NAME} PRIVATE zinc_lib ${Boost_LIBRARIES})
+endforeach()
 
 # Optional: If you need to specify compiler-specific flags or requirements
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
-        message(FATAL_ERROR "GCC version 14 or higher is required.")
+    execute_process(COMMAND g++-14 --version RESULT_VARIABLE GXX_14_RESULT OUTPUT_QUIET ERROR_QUIET)
+    if(GXX_14_RESULT EQUAL 0)
+        set(CMAKE_CXX_COMPILER "g++-14" CACHE STRING "C++ compiler" FORCE)
+    else()
+        if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
+            message(FATAL_ERROR "GCC version 14 or higher is required. Install g++-14 if available.")
+        endif()
     endif()
     # Add any specific GCC flags here if needed
     # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
