@@ -143,7 +143,7 @@ std::string execute_request(StreamType& stream, const http::request<http::string
     http::response<http::dynamic_body> res;
     http::read(stream, buffer, res);
     std::string body = buffers_to_string(res.body().data());
-    if (res.result() != http::status::ok) {
+    if (res.result_int() / 100 != 2) {
         throw std::runtime_error(std::string(res.reason()) + body);
     }
     return body;
@@ -185,8 +185,8 @@ std::generator<std::string_view> process_response(StreamType& stream) {
 
     http::read_header(stream, rotate_buffer, res_parser);
     auto& res = res_parser.get();
-    if (res.result() != http::status::ok) {
-        http::read(stream, rotate_buffer, res_parser); // response.result_int()
+    if (res.result_int() / 100 != 2) {
+        http::read(stream, rotate_buffer, res_parser);
         throw std::runtime_error(std::string(res.reason()) + beast::buffers_to_string(res.body().data()));
     }
 
