@@ -39,7 +39,8 @@ struct BackendState {
 };
 
 struct URL {
-    std::string_view scheme, host, port, path;
+    std::string host, path;
+    std::string_view port;
     bool tls;
 };
 
@@ -49,19 +50,17 @@ URL parse_url(std::string_view url_str) {
     if (!url_result) {
         throw std::runtime_error("Invalid URL format");
     }
-    const url::url_view url = *url_result;
-    std::string_view scheme = url.scheme();
-    std::string_view host = url.host();
-    std::string_view path = url.path();
+    url::url_view url = *url_result;
+    bool tls = (url.scheme_id() == url::scheme::https);
     std::string_view port = url.port();
-    bool tls = (scheme == "https");
     if (port.empty()) {
         port = tls ? "443" : "80";
     }
-    if (path.empty()) {
-        path = "/";
-    }
-    return {scheme, host, port, path, tls};
+    return {
+        url.host(), url.path(),
+        port,
+        tls
+    };
 }
 
 
@@ -74,11 +73,11 @@ void add_headers(http::request<http::string_body>& req, std::span<const std::pai
 
 // Shared helper functions for common setup steps
 template<typename StreamType>
-StreamType connect(URL url, std::string& key) {
+StreamType connect(URL const& url, std::string& key) {
     net::io_context& ioc = BackendState::instance().ioc;
     {
         std::stringstream ss;
-        ss << url.scheme << "://" << url.host << ":" << url.port;
+        ss << (url.tls ? "https://" : "http://") << url.host << ":" << url.port;
         key = std::move(ss.str());
     }
     // Check if connection is cached
@@ -106,7 +105,7 @@ StreamType connect(URL url, std::string& key) {
         ssl::context ctx{ssl::context::tlsv12_client};
         ctx.set_default_verify_paths();
         StreamType stream{ioc, ctx};
-        if (!SSL_set_tlsext_host_name(stream.native_handle(), std::string(url.host).c_str())) {
+        if (!SSL_set_tlsext_host_name(stream.native_handle(), url.host.c_str())) {
             beast::error_code ec{static_cast<int>(::ERR_get_error()), net::error::get_ssl_category()};
             throw beast::system_error{ec};
         }
@@ -120,7 +119,7 @@ StreamType connect(URL url, std::string& key) {
     }
 }
 template<typename StreamType>
-StreamType prepare_request(const std::string_view method, URL url, std::span<const std::pair<std::string_view, std::string_view>> headers, std::string_view body,
+StreamType prepare_request(const std::string_view method, URL const& url, std::span<const std::pair<std::string_view, std::string_view>> headers, std::string_view body,
                      http::request<http::string_body>& req, std::string& key) {
 
     StreamType stream = connect<StreamType>(url, key);
@@ -182,6 +181,8 @@ std::generator<std::string_view> process_response(StreamType& stream, http::resp
     do {
         http::read_some(stream, buffer, res_parser);
 
+        std::cerr << "process_response: read " << buffer.size() << std::endl;
+
         if (buffer.size() == 0) break;
 
         std::string_view data((char const*)buffer.cdata().data(), buffer.size());
@@ -191,6 +192,7 @@ std::generator<std::string_view> process_response(StreamType& stream, http::resp
             if (end == std::string_view::npos) {
                 break;
             }
+	        std::cerr << "line length=" << (end-start) << " data=" << std::string_view(data.data()+start,end-start) << std::endl;
 
             co_yield {data.data() + start, end - start};
 

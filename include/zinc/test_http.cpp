@@ -31,6 +31,15 @@ void test_http_client() {
     // Define body for POST requests
     std::string_view post_body = R"({"title": "foo", "body": "bar", "userId": 1})";
 
+    // Test GET with string
+    std::cout << "\nTesting GET with string on HTTP URL:\n";
+    std::string response_str = HttpClient::request_string("GET", http_get_url, span_headers);
+    std::cout << response_str << "\n";
+
+    std::cout << "\nTesting GET with string on HTTPS URL:\n";
+    response_str = HttpClient::request_string("GET", https_get_url, span_headers);
+    std::cout << response_str << "\n";
+
     // Test GET with generator
     std::cout << "Testing GET with generator on HTTP URL:\n";
     auto gen_response = HttpClient::request("GET", http_get_url, span_headers);
@@ -44,13 +53,13 @@ void test_http_client() {
         std::cout << line << "\n";
     }
 
-    // Test GET with string
-    std::cout << "\nTesting GET with string on HTTP URL:\n";
-    std::string response_str = HttpClient::request_string("GET", http_get_url, span_headers);
+    // Test POST with string
+    std::cout << "\nTesting POST with string on HTTP URL:\n";
+    response_str = HttpClient::request_string("POST", http_post_url, span_headers, post_body);
     std::cout << response_str << "\n";
 
-    std::cout << "\nTesting GET with string on HTTPS URL:\n";
-    response_str = HttpClient::request_string("GET", https_get_url, span_headers);
+    std::cout << "\nTesting POST with string on HTTPS URL:\n";
+    response_str = HttpClient::request_string("POST", https_post_url, span_headers, post_body);
     std::cout << response_str << "\n";
 
     // Test POST with generator
@@ -65,15 +74,6 @@ void test_http_client() {
     for (auto line : gen_response) {
         std::cout << line << "\n";
     }
-
-    // Test POST with string
-    std::cout << "\nTesting POST with string on HTTP URL:\n";
-    response_str = HttpClient::request_string("POST", http_post_url, span_headers, post_body);
-    std::cout << response_str << "\n";
-
-    std::cout << "\nTesting POST with string on HTTPS URL:\n";
-    response_str = HttpClient::request_string("POST", https_post_url, span_headers, post_body);
-    std::cout << response_str << "\n";
 }
 
 int main() {

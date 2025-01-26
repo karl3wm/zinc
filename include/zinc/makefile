@@ -1,5 +1,5 @@
 CXX=g++-14
-CXXFLAGS=-std=c++26 -ggdb
+CXXFLAGS=-std=c++26 -ggdb -O0
 LDLIBS=-lssl -lcrypto -lboost_url
 LDFLAGS=-ggdb
 CC=${CXX}
