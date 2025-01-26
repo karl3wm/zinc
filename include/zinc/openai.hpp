@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace zinc {
 
@@ -74,9 +75,9 @@ public:
     std::generator<std::span<CompletionItem const>> gen_chats(std::span<std::pair<std::string_view, std::string_view> const> messages, size_t completions, std::span<std::pair<std::string_view, std::string_view> const> params = {}) const;
 
 private:
-    std::string base_url_;
-    std::string model_;
-    std::string api_key_;
+    std::string endpoint_completions_;
+    std::string endpoint_chats_;
+    std::string bearer_;
     std::unordered_map<std::string, std::string> defaults_;
 };
 

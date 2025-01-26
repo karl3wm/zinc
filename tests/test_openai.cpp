@@ -99,11 +99,11 @@ void test_multiple_chats(zinc::OpenAIClient& client) {
 }
 
 int main() {
-    // Initialize the OpenAIClient with appropriate URL, model, and API key.
-    // These values should be replaced with actual values for testing.
-    std::string url = "https://api.openai.com"; // Replace with actual URL
-    std::string model = "text-davinci-003";     // Replace with actual model name
-    std::string key = "your_api_key_here";      // Replace with your actual API key
+    // Initialize the OpenAIClient with URL, model, and API key.
+    // These values should be replaced
+    std::string url = "https://api.sambanova.ai";
+    std::string model = "Meta-Llama-3.1-405B-Instruct";
+    std::string key = "d8957211-24e6-426d-90cc-b267ce681e4f";
 
     zinc::OpenAIClient client(url, model, key);
 

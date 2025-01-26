@@ -142,7 +142,11 @@ std::string execute_request(StreamType& stream, const http::request<http::string
     http::write(stream, req);
     http::response<http::dynamic_body> res;
     http::read(stream, buffer, res);
-    return boost::beast::buffers_to_string(res.body().data());
+    std::string body = buffers_to_string(res.body().data());
+    if (res.result() != http::status::ok) {
+        throw std::runtime_error(std::string(res.reason()) + body);
+    }
+    return body;
 }
 
 template<typename StreamType>
@@ -175,8 +179,18 @@ std::string HttpClient::request_string(std::string_view method, std::string_view
 }
 
 template <typename StreamType>
-std::generator<std::string_view> process_response(StreamType& stream, beast::flat_buffer& rotate_buffer, http::response_parser<http::basic_dynamic_body<beast::flat_buffer>>& res_parser) {
-    auto& res_buffer = res_parser.get().body();
+std::generator<std::string_view> process_response(StreamType& stream) {
+    http::response_parser<http::basic_dynamic_body<beast::flat_buffer>> res_parser;
+    beast::flat_buffer rotate_buffer;
+
+    http::read_header(stream, rotate_buffer, res_parser);
+    auto& res = res_parser.get();
+    if (res.result() != http::status::ok) {
+        http::read(stream, rotate_buffer, res_parser); // response.result_int()
+        throw std::runtime_error(std::string(res.reason()) + beast::buffers_to_string(res.body().data()));
+    }
+
+    auto& res_buffer = res.body();
     while (!res_parser.is_done()) {
         /*size_t bytesRead = */http::read_some(stream, rotate_buffer, res_parser);
 
@@ -213,23 +227,19 @@ std::generator<std::string_view> HttpClient::request(std::string_view method, st
     URL url = parse_url(url_str);
     std::string key;
     http::request<http::string_body> req;
-    beast::flat_buffer rotate_buffer;
-    http::response_parser<http::basic_dynamic_body<beast::flat_buffer>> res_parser;
 
     if (url.tls) {
         ssl::context ctx{ssl::context::tlsv12_client};
         auto stream = prepare_request<beast::ssl_stream<beast::tcp_stream>>(method, url, headers, body, req, key);
         http::write(stream, req);
-        http::read_header(stream, rotate_buffer, res_parser);
-        for (auto line : process_response(stream, rotate_buffer, res_parser)) {
+        for (auto line : process_response(stream)) {
             co_yield line;
         }
         handle_response(key, stream);
     } else {
         auto stream = prepare_request<beast::tcp_stream>(method, url, headers, body, req, key);
         http::write(stream, req);
-        http::read_header(stream, rotate_buffer, res_parser);
-        for (auto line : process_response(stream, rotate_buffer, res_parser)) {
+        for (auto line : process_response(stream)) {
             co_yield line;
         }
         handle_response(key, stream);
