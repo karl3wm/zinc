@@ -18,27 +18,28 @@ namespace zinc {
 static void validate_params(
     std::unordered_map<std::string_view, OpenAI::JSONValue> const & params,
     size_t completions = 1
-) { // Verify that the user either does not specify streaming or has stream set to true.
+) {
+    // Verify the the user is not clobbering parameters.
+
     if (params.find("stream") != params.end() && params.at("stream") != OpenAI::JSONValue(true)) {
         throw std::invalid_argument("Streaming must be enabled for streaming requests.");
     }
 
-    // Verify that the user either does not specify "n" or has "n" equal to 1 for single completions or equal to "completions" for multiple completions.
-    if (params.find("n") != params.end()) {
-        int n = std::get<long>(params.at("n"));
-        if (completions == 1 && n != 1) {
-            throw std::invalid_argument("For single completion, 'n' must be 1.");
-        } else if (completions > 1 && n != static_cast<int>(completions)) {
-            throw std::invalid_argument("For multiple completions, 'n' must match the number of completions.");
-        }
-    } else if (completions == 0) {
-        throw std::invalid_argument("When completions are 0, 'n' must be specified in params.");
+    if (params.find("n") != params.end() && params.at("n") != OpenAI::JSONValue((long)completions)) {
+        throw std::invalid_argument("'n' mismatches the number of completions.");
+    }
+
+    if (params.find("prompt") != params.end() || params.find("messages") != params.end()) {
+        throw std::invalid_argument("Prompt provided twice.");
     }
 }
 
 // Helper function to process response lines
-static std::generator<OpenAI::StreamPart const&> process_response_lines(std::generator<std::string_view> & response_lines) {
-    static thread_local std::vector<std::pair<std::string_view, OpenAI::JSONValue>> jsonvalues;
+static std::generator<std::span<OpenAI::StreamPart>> process_response_lines(std::generator<std::string_view> & response_lines) {
+
+    static thread_local std::vector<std::vector<std::pair<std::string_view, OpenAI::JSONValue>>> jsonvalues_list;
+    static thread_local std::vector<OpenAI::StreamPart> streamparts;
+
     for (auto line : response_lines) {
         if (line.empty() || line == "\n") continue; // Skip empty lines
 
@@ -47,28 +48,58 @@ static std::generator<OpenAI::StreamPart const&> process_response_lines(std::gen
         if (line == "[DONE]") break; // End of stream
 
         if (line.front() == '{') { // JSON object
-            std::cerr << "process_response_lines line: " << line << std::endl;
-            json::object json_obj = json::parse(line).get_object();
-            jsonvalues.clear();
-            for (const auto& [key, value] : json_obj) {
-                OpenAI::JSONValue val;
-                switch (value.kind()) {
-                case json::kind::string:
-                    val = value.get_string(); break;
-                case json::kind::double_:
-                    val = value.get_double(); break;
-                case json::kind::int64:
-                    val = value.get_int64(); break;
-                case json::kind::uint64:
-                    val = static_cast<long>(value.get_uint64()); break;
-                case json::kind::bool_:
-                    val = value.get_bool(); break;
-                default:
-                    throw std::runtime_error("unexpected json value type");
-                }
-                jsonvalues.emplace_back(key, val);
+            json::array choices = json::parse(line).at("choices").get_array();
+            if (choices.size() > jsonvalues_list.size()) {
+                jsonvalues_list.resize(choices.size());
             }
-            co_yield OpenAI::StreamPart{json_obj["text"].get_string(), jsonvalues};
+            streamparts.resize(choices.size());
+            for (size_t idx = 0; idx < choices.size(); ++ idx) {
+                json::object & choice = choices[idx].get_object();
+                auto & jsonvalues = jsonvalues_list[idx];
+                auto & streampart = streamparts[idx];
+                jsonvalues.resize(choice.size());
+                streampart.text = {};
+                int key_idx = -1;
+                for (const auto& [key, value] : choice) {
+                    OpenAI::JSONValue val;
+                    ++ key_idx;
+                    switch (value.kind()) {
+                    case json::kind::string:
+                        val = value.get_string();
+                        if (key == "text") {
+                            streampart.text = std::get<std::string_view>(val);
+                        }
+                        break;
+                    case json::kind::double_:
+                        val = value.get_double(); break;
+                    case json::kind::int64:
+                        val = value.get_int64(); break;
+                    case json::kind::uint64:
+                        val = static_cast<long>(value.get_uint64()); break;
+                    case json::kind::bool_:
+                        val = value.get_bool(); break;
+                    case json::kind::null:
+                        val = nullptr; break;
+                    case json::kind::object:
+                        if (key == "delta") {
+                            val = value.at("content").get_string();
+                            jsonvalues[key_idx].first = "delta.content";
+                            jsonvalues[key_idx].second = val;
+                            streampart.text = std::get<std::string_view>(val);
+                            continue;
+                        }
+                        // fall-thru
+                    default:
+                        throw std::runtime_error("unexpected json value type");
+                    }
+                    jsonvalues[key_idx].first = key;
+                    jsonvalues[key_idx].second = val;
+                }
+                streampart.data = jsonvalues;
+            }
+
+            co_yield streamparts;
+
         } else { // Non-JSON informational string
             // TODO: Implement logging or access to these informational strings later.
             // For now, we skip non-JSON lines but log them for debugging purposes.
@@ -87,10 +118,18 @@ OpenAI::OpenAI(
     JSONValues const defaults)
 : endpoint_completions_(std::string(url) + "/v1/completions"),
   endpoint_chats_(std::string(url) + "/v1/chat/completions"),
-  bearer_("Bearer " + std::string(key))
+  bearer_("Bearer " + std::string(key)),
+  headers_{
+    {"Authorization", bearer_},
+    {"Content-Type", "application/json"},
+    {"HTTP-Referer", "https://github.com/karl3wm/zinc"},
+    {"X-Title", "ZinC"}
+  },
+  defaults_{
+    {"model", model},
+    {"stream", true}
+  }
 {
-    defaults_["model"] = model;
-    defaults_["stream"] = true;
     for (const auto& [k, v] : defaults) {
         std::string key(k);
         if (defaults_.find(key) != defaults_.end()) {
@@ -114,7 +153,6 @@ std::generator<OpenAI::StreamPart const&> OpenAI::gen_completion(
     for (const auto& [k, v] : params) {
         combined_params[k] = v;
     }
-    combined_params["prompt"] = prompt;
 
     // Validate parameters
     validate_params(combined_params);
@@ -124,19 +162,17 @@ std::generator<OpenAI::StreamPart const&> OpenAI::gen_completion(
     for (const auto& [key, value] : combined_params) {
         std::visit([&](const auto& val) { j[key] = val; }, value);
     }
+    j["prompt"] = prompt;
     std::string body = json::serialize(j);
     
 
     // Perform request
-    std::initializer_list<std::pair<std::string_view, std::string_view>> headers = {
-        {"Authorization", bearer_},
-        {"Content-Type", "application/json"}
-    };
-    auto response_lines = Http::request("POST", endpoint_completions_, headers, body);
+    auto response_lines = Http::request("POST", endpoint_completions_, headers_, body);
 
     // Process response lines
-    for (auto& item : process_response_lines(response_lines)) {
-        co_yield item;
+    for (auto const& streamparts : process_response_lines(response_lines)) {
+        if (streamparts.size() > 1) throw std::runtime_error("server returned more than 1 completion");
+        if (streamparts.size() > 0) co_yield streamparts[0];
     }
 
     co_return;
@@ -159,7 +195,6 @@ std::generator<std::span<OpenAI::StreamPart const>> OpenAI::gen_completions(
     for (const auto& [k, v] : params) {
         combined_params[k] = v;
     }
-    combined_params["prompt"] = prompt;
 
     // Validate parameters
     validate_params(combined_params, completions);
@@ -169,31 +204,23 @@ std::generator<std::span<OpenAI::StreamPart const>> OpenAI::gen_completions(
     for (const auto& [key, value] : combined_params) {
         std::visit([&](const auto& val) { j[key] = val; }, value);
     }
+    j["prompt"] = prompt;
+    j["n"] = completions;
     std::string body = json::serialize(j);
 
     // Perform request
-    std::initializer_list<std::pair<std::string_view, std::string_view>> headers = {
-        {"Authorization", bearer_},
-        {"Content-Type", "application/json"}
-    };
-    auto response_lines = Http::request("POST", endpoint_completions_, headers, body);
+    auto response_lines = Http::request("POST", endpoint_completions_, headers_, body);
 
     // Process response lines
-    auto completion_items = process_response_lines(response_lines);
-    std::vector<StreamPart> items;
-    for (auto& item : completion_items) {
-        items.push_back(item);
-        if (items.size() == completions) {
-            co_yield std::span<StreamPart const>(items.data(), items.size());
-            items.clear();
-        }
+    for (auto const & streamparts : process_response_lines(response_lines)) {
+        co_yield streamparts;
     }
 
     co_return;
 }
 
 std::generator<OpenAI::StreamPart const&> OpenAI::gen_chat(
-    RoleContentPairs const & messages,
+    RoleContentPairs const messages,
     JSONValues const params
 ) const {
     static thread_local std::unordered_map<std::string_view, JSONValue> combined_params;
@@ -203,10 +230,6 @@ std::generator<OpenAI::StreamPart const&> OpenAI::gen_chat(
     }
     for (const auto& [k, v] : params) {
         combined_params[k] = v;
-    }
-    json::array messages_array;
-    for (const auto& [role, content] : messages) {
-        messages_array.push_back({{"role", role}, {"content", content}});
     }
 
     // Validate parameters
@@ -218,27 +241,27 @@ std::generator<OpenAI::StreamPart const&> OpenAI::gen_chat(
     for (const auto& [key, value] : combined_params) {
         std::visit([&](const auto& val) { j[key] = val; }, value);
     }
+    json::array messages_array;
+    for (const auto& [role, content] : messages) {
+        messages_array.push_back({{"role", role}, {"content", content}});
+    }
     j["messages"] = messages_array;
     std::string body = json::serialize(j);
 
     // Perform request
-    std::initializer_list<std::pair<std::string_view, std::string_view>> headers = {
-        {"Authorization", bearer_},
-        {"Content-Type", "application/json"}
-    };
-    auto response_lines = Http::request("POST", endpoint_chats_, headers, body);
+    auto response_lines = Http::request("POST", endpoint_chats_, headers_, body);
 
     // Process response lines
-    auto completions = process_response_lines(response_lines);
-    for (auto& item : completions) {
-        co_yield item;
+    for (auto const& streamparts : process_response_lines(response_lines)) {
+        if (streamparts.size() > 1) throw std::runtime_error("server returned more than 1 completion");
+        if (streamparts.size() > 0) co_yield streamparts[0];
     }
 
     co_return;
 }
 
 std::generator<std::span<OpenAI::StreamPart const>> OpenAI::gen_chats(
-    RoleContentPairs const & messages,
+    RoleContentPairs const messages,
     size_t completions,
     JSONValues const params
 ) const {
@@ -254,10 +277,6 @@ std::generator<std::span<OpenAI::StreamPart const>> OpenAI::gen_chats(
     for (const auto& [k, v] : params) {
         combined_params[k] = v;
     }
-    json::array messages_array;
-    for (const auto& [role, content] : messages) {
-        messages_array.push_back({{"role", role}, {"content", content}});
-    }
 
     // Validate parameters
     validate_params(combined_params, completions);
@@ -267,25 +286,20 @@ std::generator<std::span<OpenAI::StreamPart const>> OpenAI::gen_chats(
     for (const auto& [key, value] : combined_params) {
         std::visit([&](const auto& val) { j[key] = val; }, value);
     }
+    json::array messages_array;
+    for (const auto& [role, content] : messages) {
+        messages_array.push_back({{"role", role}, {"content", content}});
+    }
     j["messages"] = messages_array;
+    j["n"] = completions;
     std::string body = json::serialize(j);
 
     // Perform request
-    std::initializer_list<std::pair<std::string_view, std::string_view>> headers = {
-        {"Authorization", bearer_},
-        {"Content-Type", "application/json"}
-    };
-    auto response_lines = Http::request("POST", endpoint_chats_, headers, body);
+    auto response_lines = Http::request("POST", endpoint_chats_, headers_, body);
 
     // Process response lines
-    auto completion_items = process_response_lines(response_lines);
-    std::vector<StreamPart> items;
-    for (auto& item : completion_items) {
-        items.push_back(item);
-        if (items.size() == completions) {
-            co_yield std::span<StreamPart const>(items.data(), items.size());
-            items.clear();
-        }
+    for (auto const & streamparts : process_response_lines(response_lines)) {
+        co_yield streamparts;
     }
 
     co_return;

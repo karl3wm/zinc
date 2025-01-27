@@ -9,10 +9,12 @@ void test_single_completion(zinc::OpenAI& client) {
     size_t token_count = 0;
     for (auto&& completion : completion_gen) {
         std::cout << "Token: " << static_cast<std::string_view>(completion) << std::endl;
-        ++token_count;
-        if (token_count > 1) {
-            // Ensure more than one token is generated
-            break;
+        if (static_cast<std::string_view>(completion).size()) {
+            ++ token_count;
+            if (token_count > 1) {
+                // Ensure more than one token is generated
+                break;
+            }
         }
     }
 
@@ -32,9 +34,11 @@ void test_multiple_completions(zinc::OpenAI& client) {
     for (auto&& span : completions_gen) {
         for (auto&& completion : span) {
             std::cout << "Completion Token: " << static_cast<std::string_view>(completion) << std::endl;
-            ++token_count;
+            if (static_cast<std::string_view>(completion).size()) {
+                ++ token_count;
+            }
         }
-        if (token_count >= num_completions) {
+        if (token_count > num_completions || span.size() < num_completions) {
             // Ensure at least one token per completion is generated
             break;
         }
@@ -52,15 +56,17 @@ void test_single_chat(zinc::OpenAI& client) {
         {"user", "Hello"},
         {"assistant", "Hi there!"}
     };
-    auto chat_gen = client.gen_chat(std::span(messages));
+    auto chat_gen = client.gen_chat(messages);
 
     size_t token_count = 0;
     for (auto&& completion : chat_gen) {
         std::cout << "Chat Token: " << static_cast<std::string_view>(completion) << std::endl;
-        ++token_count;
-        if (token_count > 1) {
-            // Ensure more than one token is generated
-            break;
+        if (static_cast<std::string_view>(completion).size()) {
+            ++ token_count;
+            if (token_count > 1) {
+                // Ensure more than one token is generated
+                break;
+            }
         }
     }
 
@@ -77,15 +83,17 @@ void test_multiple_chats(zinc::OpenAI& client) {
         {"assistant", "Hi there!"}
     };
     size_t num_chats = 2;
-    auto chats_gen = client.gen_chats(std::span(messages), num_chats);
+    auto chats_gen = client.gen_chats(messages, num_chats);
 
     size_t token_count = 0;
     for (auto&& span : chats_gen) {
         for (auto&& completion : span) {
             std::cout << "Chat Completion Token: " << static_cast<std::string_view>(completion) << std::endl;
-            ++token_count;
+            if (static_cast<std::string_view>(completion).size()) {
+                ++ token_count;
+            }
         }
-        if (token_count >= num_chats) {
+        if (token_count >= num_chats || span.size() < num_chats) {
             // Ensure at least one token per chat is generated
             break;
         }

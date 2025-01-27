@@ -13,11 +13,11 @@ namespace zinc {
 class OpenAI {
 public:
     using RoleContentPairs = std::span<std::pair<std::string_view, std::string_view>>;
-    using JSONValue = std::variant<std::string_view, double, long, bool>;
+    using JSONValue = std::variant<std::string_view, double, long, bool, std::nullptr_t>;
     using JSONValues = std::span<std::pair<std::string_view, JSONValue>>;
     struct StreamPart {
         std::string_view text; // Actual generated text
-        JSONValues const data; // Raw data returned by the server
+        JSONValues data; // Raw data returned by the server
         operator std::string_view() const { return text; }
     };
 
@@ -66,7 +66,7 @@ public:
      *
      * @param messages A span of pairs representing role-content messages.
      */
-    std::generator<StreamPart const&> gen_chat(RoleContentPairs const & messages, JSONValues const params = {}) const;
+    std::generator<StreamPart const&> gen_chat(RoleContentPairs const messages, JSONValues const params = {}) const;
 
     /**
      * @brief Generate multiple chat completions based on a series of messages.
@@ -74,12 +74,13 @@ public:
      * @param messages A span of pairs representing role-content messages.
      * @param completions The number of completions to generate (must be >= 2).
      */
-    std::generator<std::span<StreamPart const>> gen_chats(RoleContentPairs const & messages, size_t completions, JSONValues const params = {}) const;
+    std::generator<std::span<StreamPart const>> gen_chats(RoleContentPairs const messages, size_t completions, JSONValues const params = {}) const;
 
 private:
     std::string const endpoint_completions_;
     std::string const endpoint_chats_;
     std::string const bearer_;
+    std::vector<std::pair<std::string_view, std::string_view>> headers_;
     std::unordered_map<std::string, JSONValue> defaults_;
 };
 
