@@ -59,7 +59,7 @@ static std::generator<std::span<OpenAI::StreamPart>> process_response_lines(std:
                 auto & jsonvalues = jsonvalues_list[idx];
                 auto & streampart = streamparts[idx];
                 jsonvalues.resize(choice.size());
-                streampart.text = {};
+                streampart = {};
                 int key_idx = -1;
                 for (const auto& [key, value] : choice) {
                     OpenAI::JSONValue val;
@@ -68,7 +68,7 @@ static std::generator<std::span<OpenAI::StreamPart>> process_response_lines(std:
                     case json::kind::string:
                         val = value.get_string();
                         if (key == "text") {
-                            streampart.text = std::get<std::string_view>(val);
+				static_cast<std::string_view&>(streampart) = std::get<std::string_view>(val);
                         }
                         break;
                     case json::kind::double_:
@@ -86,7 +86,7 @@ static std::generator<std::span<OpenAI::StreamPart>> process_response_lines(std:
                             val = value.at("content").get_string();
                             jsonvalues[key_idx].first = "delta.content";
                             jsonvalues[key_idx].second = val;
-                            streampart.text = std::get<std::string_view>(val);
+                            static_cast<std::string_view&>(streampart) = std::get<std::string_view>(val);
                             continue;
                         }
                         // fall-thru

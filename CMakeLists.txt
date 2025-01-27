@@ -38,12 +38,12 @@ target_include_directories(zinc_lib PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(zinc_lib PRIVATE ${Boost_LIBRARIES} ${OPENSSL_LIBRARIES})
 
 # Add tool binaries
-#file(GLOB TOOL_SOURCES "tools/*.cpp") # Assuming you have tools in a 'tools' directory
-#foreach(TOOL_SOURCE IN LISTS TOOL_SOURCES)
-#    get_filename_component(TOOL_NAME ${TOOL_SOURCE} NAME_WE)
-#    add_executable(${TOOL_NAME} ${TOOL_SOURCE})
-#    target_link_libraries(${TOOL_NAME} PRIVATE zinc_lib ${Boost_LIBRARIES} ${OPENSSL_LIBRARIES})
-#endforeach()
+file(GLOB TOOL_SOURCES "tools/*.cpp") # Assuming you have tools in a 'tools' directory
+foreach(TOOL_SOURCE IN LISTS TOOL_SOURCES)
+    get_filename_component(TOOL_NAME ${TOOL_SOURCE} NAME_WE)
+    add_executable(${TOOL_NAME} ${TOOL_SOURCE})
+    target_link_libraries(${TOOL_NAME} PRIVATE zinc_lib ${Boost_LIBRARIES} ${OPENSSL_LIBRARIES})
+endforeach()
 
 # Optional: If you need to specify compiler-specific flags or requirements
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")

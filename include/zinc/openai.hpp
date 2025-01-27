@@ -14,10 +14,8 @@ public:
     using RoleContentPairs = std::span<std::pair<std::string_view, std::string_view>>;
     using JSONValue = std::variant<std::string_view, double, long, bool, std::nullptr_t>;
     using JSONValues = std::span<std::pair<std::string_view, JSONValue>>;
-    struct StreamPart {
-        std::string_view text; // Actual generated text
+    struct StreamPart : public std::string_view {
         JSONValues data; // Raw data returned by the server
-        operator std::string_view() const { return text; }
     };
 
     /**
