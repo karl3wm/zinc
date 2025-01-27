@@ -14,8 +14,8 @@ int main(int argc, char **argv) {
 
     std::string prompt = "";
     for (int i = 1; i < argc; ++ i) {
+        if (i > 1) prompt += " ";
         prompt += argv[i];
-        prompt += " ";
     }
 
     std::cout << prompt << std::flush;
