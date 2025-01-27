@@ -4,7 +4,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -81,7 +80,7 @@ private:
     std::string const endpoint_chats_;
     std::string const bearer_;
     std::vector<std::pair<std::string_view, std::string_view>> headers_;
-    std::unordered_map<std::string, JSONValue> defaults_;
+    std::vector<std::pair<std::string, JSONValue>> defaults_;
 };
 
 } // namespace zinc

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <string_view>
+#include <unordered_map>
 
 #include <boost/json.hpp>
 #include <boost/json/src.hpp>
@@ -124,19 +125,20 @@ OpenAI::OpenAI(
     {"Content-Type", "application/json"},
     {"HTTP-Referer", "https://github.com/karl3wm/zinc"},
     {"X-Title", "ZinC"}
-  },
-  defaults_{
-    {"model", model},
-    {"stream", true}
   }
 {
+    std::unordered_map<std::string, JSONValue> defaults_map{
+        {"model", model},
+        {"stream", true}
+    };
     for (const auto& [k, v] : defaults) {
         std::string key(k);
-        if (defaults_.find(key) != defaults_.end()) {
+        if (defaults_map.find(key) != defaults_map.end()) {
             throw std::runtime_error(key + " already specified");
         }
-        defaults_[key] = v;
+        defaults_map[key] = v;
     }
+    defaults_ = std::move(decltype(defaults_)(defaults_map.begin(), defaults_map.end()));
 }
 
 OpenAI::~OpenAI() = default;
