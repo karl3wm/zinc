@@ -164,7 +164,6 @@ std::string Http::request_string(std::string_view method, std::string_view url_s
     std::string response;
     std::string key;
     if (url.tls) {
-        ssl::context ctx{ssl::context::tlsv12_client};
         http::request<http::string_body> req;
         auto stream = prepare_request<beast::ssl_stream<beast::tcp_stream>>(method, url, headers, body, req, key);
         response = execute_request(stream, req);
@@ -234,7 +233,6 @@ std::generator<std::string_view> Http::request(std::string_view method, std::str
     http::request<http::string_body> req;
 
     if (url.tls) {
-        ssl::context ctx{ssl::context::tlsv12_client};
         auto stream = prepare_request<beast::ssl_stream<beast::tcp_stream>>(method, url, headers, body, req, key);
         http::write(stream, req);
         for (auto line : process_response(stream)) {
