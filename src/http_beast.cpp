@@ -192,10 +192,15 @@ std::generator<std::string_view> process_response(StreamType& stream) {
 
     auto& res_buffer = res.body();
     while (!res_parser.is_done()) {
-        /*size_t bytesRead = */http::read_some(stream, rotate_buffer, res_parser);
+        size_t bytesRead = http::read_some(stream, rotate_buffer, res_parser);
 
         if (res_buffer.size() == 0) {
-            break;
+            if (bytesRead == 0) {
+                break;
+            } else {
+                // oops: it looks like it won't hand off the data until so much is read. likely a way to change that.
+                continue;
+            }
         }
 
         std::string_view data((char const*)res_buffer.cdata().data(), res_buffer.size());

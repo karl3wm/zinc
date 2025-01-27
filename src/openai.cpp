@@ -5,24 +5,27 @@
 #include <stdexcept>
 #include <string_view>
 
-#include <boost/lexical_cast.hpp>
-#include <nlohmann/json.hpp>
+#include <boost/json.hpp>
+#include <boost/json/src.hpp>
 
 #include <iostream>
 
+namespace json = boost::json;
+
 namespace zinc {
-using json = nlohmann::json;
 
 // Helper function to validate parameters
-static void validate_params(const std::unordered_map<std::string_view, std::string_view>& params, size_t completions = 1) {
-    // Verify that the user either does not specify streaming or has stream set to true.
-    if (params.find("stream") != params.end() && params.at("stream") != "true") {
+static void validate_params(
+    std::unordered_map<std::string_view, OpenAI::JSONValue> const & params,
+    size_t completions = 1
+) { // Verify that the user either does not specify streaming or has stream set to true.
+    if (params.find("stream") != params.end() && params.at("stream") != OpenAI::JSONValue(true)) {
         throw std::invalid_argument("Streaming must be enabled for streaming requests.");
     }
 
     // Verify that the user either does not specify "n" or has "n" equal to 1 for single completions or equal to "completions" for multiple completions.
     if (params.find("n") != params.end()) {
-        int n = boost::lexical_cast<int>(params.at("n"));
+        int n = std::get<long>(params.at("n"));
         if (completions == 1 && n != 1) {
             throw std::invalid_argument("For single completion, 'n' must be 1.");
         } else if (completions > 1 && n != static_cast<int>(completions)) {
@@ -34,18 +37,43 @@ static void validate_params(const std::unordered_map<std::string_view, std::stri
 }
 
 // Helper function to process response lines
-static std::generator<OpenAI::CompletionItem const&> process_response_lines(std::generator<std::string_view> & response_lines) {
+static std::generator<OpenAI::StreamPart const&> process_response_lines(std::generator<std::string_view> & response_lines) {
+    static thread_local std::vector<std::pair<std::string_view, OpenAI::JSONValue>> jsonvalues;
     for (auto line : response_lines) {
         if (line.empty() || line == "\n") continue; // Skip empty lines
 
+        if (line.rfind("data: ", 0) == 0) line = line.substr(strlen("data: ")); // SSE prefix
+
+        if (line == "[DONE]") break; // End of stream
+
         if (line.front() == '{') { // JSON object
             std::cerr << "process_response_lines line: " << line << std::endl;
-            auto json_obj = json::parse(line);
-            co_yield OpenAI::CompletionItem{json_obj["text"].get<std::string_view>(), json_obj.get<std::unordered_map<std::string_view, std::string_view>>()};
+            json::object json_obj = json::parse(line).get_object();
+            jsonvalues.clear();
+            for (const auto& [key, value] : json_obj) {
+                OpenAI::JSONValue val;
+                switch (value.kind()) {
+                case json::kind::string:
+                    val = value.get_string(); break;
+                case json::kind::double_:
+                    val = value.get_double(); break;
+                case json::kind::int64:
+                    val = value.get_int64(); break;
+                case json::kind::uint64:
+                    val = static_cast<long>(value.get_uint64()); break;
+                case json::kind::bool_:
+                    val = value.get_bool(); break;
+                default:
+                    throw std::runtime_error("unexpected json value type");
+                }
+                jsonvalues.emplace_back(key, val);
+            }
+            co_yield OpenAI::StreamPart{json_obj["text"].get_string(), jsonvalues};
         } else { // Non-JSON informational string
             // TODO: Implement logging or access to these informational strings later.
             // For now, we skip non-JSON lines but log them for debugging purposes.
             // Example: log_info(line);
+            std::cerr << "Non-JSON line: " << line << std::endl;
         }
     }
 
@@ -56,11 +84,13 @@ OpenAI::OpenAI(
     std::string_view url,
     std::string_view model,
     std::string_view key,
-    std::span<const std::pair<std::string_view, std::string_view>> defaults)
-    : endpoint_completions_(std::string(url) + "/v1/completions"), endpoint_chats_(std::string(url) + "/v1/chat/completions"), bearer_("Bearer " + std::string(key))
+    JSONValues const defaults)
+: endpoint_completions_(std::string(url) + "/v1/completions"),
+  endpoint_chats_(std::string(url) + "/v1/chat/completions"),
+  bearer_("Bearer " + std::string(key))
 {
     defaults_["model"] = model;
-    defaults_["stream"] = "true";
+    defaults_["stream"] = true;
     for (const auto& [k, v] : defaults) {
         std::string key(k);
         if (defaults_.find(key) != defaults_.end()) {
@@ -72,8 +102,12 @@ OpenAI::OpenAI(
 
 OpenAI::~OpenAI() = default;
 
-std::generator<OpenAI::CompletionItem const&> OpenAI::gen_completion(std::string_view prompt, std::span<const std::pair<std::string_view, std::string_view>> params) const {
-    std::unordered_map<std::string_view, std::string_view> combined_params;
+std::generator<OpenAI::StreamPart const&> OpenAI::gen_completion(
+    std::string_view prompt,
+    JSONValues const params
+) const {
+    static thread_local std::unordered_map<std::string_view, JSONValue> combined_params;
+    combined_params.clear();
     for (const auto& [k, v] : defaults_) {
         combined_params[k] = v;
     }
@@ -86,11 +120,11 @@ std::generator<OpenAI::CompletionItem const&> OpenAI::gen_completion(std::string
     validate_params(combined_params);
 
     // Build request body
-    json j;
+    json::object j;
     for (const auto& [key, value] : combined_params) {
-        j[key] = value;
+        std::visit([&](const auto& val) { j[key] = val; }, value);
     }
-    std::string body = j.dump();
+    std::string body = json::serialize(j);
     
 
     // Perform request
@@ -108,12 +142,17 @@ std::generator<OpenAI::CompletionItem const&> OpenAI::gen_completion(std::string
     co_return;
 }
 
-std::generator<std::span<OpenAI::CompletionItem const>> OpenAI::gen_completions(std::string_view prompt, size_t completions, std::span<const std::pair<std::string_view, std::string_view>> params) const {
+std::generator<std::span<OpenAI::StreamPart const>> OpenAI::gen_completions(
+    std::string_view prompt,
+    size_t completions,
+    JSONValues const params
+) const {
     if (completions < 2) {
         throw std::invalid_argument("Number of completions must be at least 2.");
     }
 
-    std::unordered_map<std::string_view, std::string_view> combined_params;
+    static thread_local std::unordered_map<std::string_view, JSONValue> combined_params;
+    combined_params.clear();
     for (const auto& [k, v] : defaults_) {
         combined_params[k] = v;
     }
@@ -126,11 +165,11 @@ std::generator<std::span<OpenAI::CompletionItem const>> OpenAI::gen_completions(
     validate_params(combined_params, completions);
 
     // Build request body
-    json j;
+    json::object j;
     for (const auto& [key, value] : combined_params) {
-        j[key] = value;
+        std::visit([&](const auto& val) { j[key] = val; }, value);
     }
-    std::string body = j.dump();
+    std::string body = json::serialize(j);
 
     // Perform request
     std::initializer_list<std::pair<std::string_view, std::string_view>> headers = {
@@ -141,11 +180,11 @@ std::generator<std::span<OpenAI::CompletionItem const>> OpenAI::gen_completions(
 
     // Process response lines
     auto completion_items = process_response_lines(response_lines);
-    std::vector<CompletionItem> items;
+    std::vector<StreamPart> items;
     for (auto& item : completion_items) {
         items.push_back(item);
         if (items.size() == completions) {
-            co_yield std::span<CompletionItem const>(items.data(), items.size());
+            co_yield std::span<StreamPart const>(items.data(), items.size());
             items.clear();
         }
     }
@@ -153,29 +192,34 @@ std::generator<std::span<OpenAI::CompletionItem const>> OpenAI::gen_completions(
     co_return;
 }
 
-std::generator<OpenAI::CompletionItem const&> OpenAI::gen_chat(std::span<const std::pair<std::string_view, std::string_view>> messages, std::span<const std::pair<std::string_view, std::string_view>> params) const {
-    std::unordered_map<std::string_view, std::string_view> combined_params;
+std::generator<OpenAI::StreamPart const&> OpenAI::gen_chat(
+    RoleContentPairs const & messages,
+    JSONValues const params
+) const {
+    static thread_local std::unordered_map<std::string_view, JSONValue> combined_params;
+    combined_params.clear();
     for (const auto& [k, v] : defaults_) {
         combined_params[k] = v;
     }
     for (const auto& [k, v] : params) {
         combined_params[k] = v;
     }
-    json messages_array = json::array();
+    json::array messages_array;
     for (const auto& [role, content] : messages) {
         messages_array.push_back({{"role", role}, {"content", content}});
     }
-    combined_params["messages"] = messages_array.dump();
 
     // Validate parameters
+        // hmm validate_params should take a json object to be more flexibly useable after messages_array is stored
     validate_params(combined_params);
 
     // Build request body
-    json j;
+    json::object j;
     for (const auto& [key, value] : combined_params) {
-        j[key] = value;
+        std::visit([&](const auto& val) { j[key] = val; }, value);
     }
-    std::string body = j.dump();
+    j["messages"] = messages_array;
+    std::string body = json::serialize(j);
 
     // Perform request
     std::initializer_list<std::pair<std::string_view, std::string_view>> headers = {
@@ -193,33 +237,38 @@ std::generator<OpenAI::CompletionItem const&> OpenAI::gen_chat(std::span<const s
     co_return;
 }
 
-std::generator<std::span<OpenAI::CompletionItem const>> OpenAI::gen_chats(std::span<const std::pair<std::string_view, std::string_view>> messages, size_t completions, std::span<const std::pair<std::string_view, std::string_view>> params) const {
+std::generator<std::span<OpenAI::StreamPart const>> OpenAI::gen_chats(
+    RoleContentPairs const & messages,
+    size_t completions,
+    JSONValues const params
+) const {
     if (completions < 2) {
         throw std::invalid_argument("Number of completions must be at least 2.");
     }
 
-    std::unordered_map<std::string_view, std::string_view> combined_params;
+    static thread_local std::unordered_map<std::string_view, JSONValue> combined_params;
+    combined_params.clear();
     for (const auto& [k, v] : defaults_) {
         combined_params[k] = v;
     }
     for (const auto& [k, v] : params) {
         combined_params[k] = v;
     }
-    json messages_array = json::array();
+    json::array messages_array;
     for (const auto& [role, content] : messages) {
         messages_array.push_back({{"role", role}, {"content", content}});
     }
-    combined_params["messages"] = messages_array.dump();
 
     // Validate parameters
     validate_params(combined_params, completions);
 
     // Build request body
-    json j;
+    json::object j;
     for (const auto& [key, value] : combined_params) {
-        j[key] = value;
+        std::visit([&](const auto& val) { j[key] = val; }, value);
     }
-    std::string body = j.dump();
+    j["messages"] = messages_array;
+    std::string body = json::serialize(j);
 
     // Perform request
     std::initializer_list<std::pair<std::string_view, std::string_view>> headers = {
@@ -230,11 +279,11 @@ std::generator<std::span<OpenAI::CompletionItem const>> OpenAI::gen_chats(std::s
 
     // Process response lines
     auto completion_items = process_response_lines(response_lines);
-    std::vector<CompletionItem> items;
+    std::vector<StreamPart> items;
     for (auto& item : completion_items) {
         items.push_back(item);
         if (items.size() == completions) {
-            co_yield std::span<CompletionItem const>(items.data(), items.size());
+            co_yield std::span<StreamPart const>(items.data(), items.size());
             items.clear();
         }
     }
