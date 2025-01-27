@@ -2,14 +2,14 @@
 #include <iostream>
 #include <vector>
 
-void test_single_completion(zinc::OpenAI& client) {
+void test_completion(zinc::OpenAI& client) {
     std::string prompt = "Once upon a time";
-    auto completion_gen = client.gen_completion(prompt);
+    std::cout << "Prompt: " << prompt << std::endl;
 
     size_t token_count = 0;
-    for (auto&& completion : completion_gen) {
-        std::cout << "Token: " << static_cast<std::string_view>(completion) << std::endl;
-        if (static_cast<std::string_view>(completion).size()) {
+    for (auto&& completion : client.complete(prompt)) {
+        std::cout << "Token: " << completion << std::endl;
+        if (completion.size()) {
             ++ token_count;
             if (token_count > 1) {
                 // Ensure more than one token is generated
@@ -25,43 +25,21 @@ void test_single_completion(zinc::OpenAI& client) {
     }
 }
 
-void test_multiple_completions(zinc::OpenAI& client) {
-    std::string prompt = "Once upon a time";
-    size_t num_completions = 3;
-    auto completions_gen = client.gen_completions(prompt, num_completions);
-
-    size_t token_count = 0;
-    for (auto&& span : completions_gen) {
-        for (auto&& completion : span) {
-            std::cout << "Completion Token: " << static_cast<std::string_view>(completion) << std::endl;
-            if (static_cast<std::string_view>(completion).size()) {
-                ++ token_count;
-            }
-        }
-        if (token_count > num_completions || span.size() < num_completions) {
-            // Ensure at least one token per completion is generated
-            break;
-        }
-    }
-
-    if (token_count < num_completions) {
-        std::cerr << "Test failed: Multiple completions did not generate enough tokens." << std::endl;
-    } else {
-        std::cout << "Multiple completions test passed." << std::endl;
-    }
-}
-
-void test_single_chat(zinc::OpenAI& client) {
+void test_chat(zinc::OpenAI& client) {
     std::vector<std::pair<std::string_view, std::string_view>> messages = {
         {"user", "Hello"},
         {"assistant", "Hi there!"}
     };
-    auto chat_gen = client.gen_chat(messages);
+
+    std::cout << "Chat Messages:" << std::endl;
+    for ( auto & message : messages) {
+        std::cout << "\t" << message.first << ": " << message.second << std::endl;
+    }
 
     size_t token_count = 0;
-    for (auto&& completion : chat_gen) {
-        std::cout << "Chat Token: " << static_cast<std::string_view>(completion) << std::endl;
-        if (static_cast<std::string_view>(completion).size()) {
+    for (auto&& completion : client.chat(messages)) {
+        std::cout << "Chat Token: " << completion << std::endl;
+        if (completion.size()) {
             ++ token_count;
             if (token_count > 1) {
                 // Ensure more than one token is generated
@@ -77,35 +55,6 @@ void test_single_chat(zinc::OpenAI& client) {
     }
 }
 
-void test_multiple_chats(zinc::OpenAI& client) {
-    std::vector<std::pair<std::string_view, std::string_view>> messages = {
-        {"user", "Hello"},
-        {"assistant", "Hi there!"}
-    };
-    size_t num_chats = 2;
-    auto chats_gen = client.gen_chats(messages, num_chats);
-
-    size_t token_count = 0;
-    for (auto&& span : chats_gen) {
-        for (auto&& completion : span) {
-            std::cout << "Chat Completion Token: " << static_cast<std::string_view>(completion) << std::endl;
-            if (static_cast<std::string_view>(completion).size()) {
-                ++ token_count;
-            }
-        }
-        if (token_count >= num_chats || span.size() < num_chats) {
-            // Ensure at least one token per chat is generated
-            break;
-        }
-    }
-
-    if (token_count < num_chats) {
-        std::cerr << "Test failed: Multiple chats did not generate enough tokens." << std::endl;
-    } else {
-        std::cout << "Multiple chats test passed." << std::endl;
-    }
-}
-
 int main() {
     // Initialize the OpenAI with URL, model, and API key.
     // These values should be replaced
@@ -116,10 +65,8 @@ int main() {
     zinc::OpenAI client(url, model, key);
 
     // Run the tests
-    test_single_completion(client);
-    test_multiple_completions(client);
-    test_single_chat(client);
-    test_multiple_chats(client);
+    test_completion(client);
+    test_chat(client);
 
     return 0;
 }

@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
 
     std::cout << prompt << std::flush;
 
-    for (auto&& part : client.gen_completion(prompt)) {
+    for (auto&& part : client.complete(prompt)) {
         std::cout << part << std::flush;
     }
 

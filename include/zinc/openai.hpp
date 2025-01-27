@@ -47,31 +47,23 @@ public:
     ~OpenAI();
 
     /**
-     * @brief Generate a single completion based on a prompt.
+     * @brief Stream a completion based on a prompt.
      */
-    std::generator<StreamPart const&> gen_completion(std::string_view prompt, JSONValues const params = {}) const;
+    std::generator<StreamPart const&> complete(
+        std::string_view prompt,
+        JSONValues const params = {}
+    ) const;
 
     /**
-     * @brief Generate multiple completions based on a prompt.
+     * @brief Stream a chat completion based on a series of messages.
      *
-     * @param completions The number of completions to generate (must be >= 2).
+     * @param messages A span of pairs representing role-content message context.
+     * The first pair element is usually among "system", "user" or "assistant".
      */
-    std::generator<std::span<StreamPart const>> gen_completions(std::string_view prompt, size_t completions, JSONValues const params = {}) const;
-
-    /**
-     * @brief Generate a single chat completion based on a series of messages.
-     *
-     * @param messages A span of pairs representing role-content messages.
-     */
-    std::generator<StreamPart const&> gen_chat(RoleContentPairs const messages, JSONValues const params = {}) const;
-
-    /**
-     * @brief Generate multiple chat completions based on a series of messages.
-     *
-     * @param messages A span of pairs representing role-content messages.
-     * @param completions The number of completions to generate (must be >= 2).
-     */
-    std::generator<std::span<StreamPart const>> gen_chats(RoleContentPairs const messages, size_t completions, JSONValues const params = {}) const;
+    std::generator<StreamPart const&> chat(
+        RoleContentPairs const messages,
+        JSONValues const params = {}
+    ) const;
 
 private:
     std::string const endpoint_completions_;

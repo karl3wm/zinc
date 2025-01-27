@@ -143,7 +143,7 @@ OpenAI::OpenAI(
 
 OpenAI::~OpenAI() = default;
 
-std::generator<OpenAI::StreamPart const&> OpenAI::gen_completion(
+std::generator<OpenAI::StreamPart const&> OpenAI::complete(
     std::string_view prompt,
     JSONValues const params
 ) const {
@@ -180,48 +180,7 @@ std::generator<OpenAI::StreamPart const&> OpenAI::gen_completion(
     co_return;
 }
 
-std::generator<std::span<OpenAI::StreamPart const>> OpenAI::gen_completions(
-    std::string_view prompt,
-    size_t completions,
-    JSONValues const params
-) const {
-    if (completions < 2) {
-        throw std::invalid_argument("Number of completions must be at least 2.");
-    }
-
-    static thread_local std::unordered_map<std::string_view, JSONValue> combined_params;
-    combined_params.clear();
-    for (const auto& [k, v] : defaults_) {
-        combined_params[k] = v;
-    }
-    for (const auto& [k, v] : params) {
-        combined_params[k] = v;
-    }
-
-    // Validate parameters
-    validate_params(combined_params, completions);
-
-    // Build request body
-    json::object j;
-    for (const auto& [key, value] : combined_params) {
-        std::visit([&](const auto& val) { j[key] = val; }, value);
-    }
-    j["prompt"] = prompt;
-    j["n"] = completions;
-    std::string body = json::serialize(j);
-
-    // Perform request
-    auto response_lines = Http::request("POST", endpoint_completions_, headers_, body);
-
-    // Process response lines
-    for (auto const & streamparts : process_response_lines(response_lines)) {
-        co_yield streamparts;
-    }
-
-    co_return;
-}
-
-std::generator<OpenAI::StreamPart const&> OpenAI::gen_chat(
+std::generator<OpenAI::StreamPart const&> OpenAI::chat(
     RoleContentPairs const messages,
     JSONValues const params
 ) const {
@@ -257,51 +216,6 @@ std::generator<OpenAI::StreamPart const&> OpenAI::gen_chat(
     for (auto const& streamparts : process_response_lines(response_lines)) {
         if (streamparts.size() > 1) throw std::runtime_error("server returned more than 1 completion");
         if (streamparts.size() > 0) co_yield streamparts[0];
-    }
-
-    co_return;
-}
-
-std::generator<std::span<OpenAI::StreamPart const>> OpenAI::gen_chats(
-    RoleContentPairs const messages,
-    size_t completions,
-    JSONValues const params
-) const {
-    if (completions < 2) {
-        throw std::invalid_argument("Number of completions must be at least 2.");
-    }
-
-    static thread_local std::unordered_map<std::string_view, JSONValue> combined_params;
-    combined_params.clear();
-    for (const auto& [k, v] : defaults_) {
-        combined_params[k] = v;
-    }
-    for (const auto& [k, v] : params) {
-        combined_params[k] = v;
-    }
-
-    // Validate parameters
-    validate_params(combined_params, completions);
-
-    // Build request body
-    json::object j;
-    for (const auto& [key, value] : combined_params) {
-        std::visit([&](const auto& val) { j[key] = val; }, value);
-    }
-    json::array messages_array;
-    for (const auto& [role, content] : messages) {
-        messages_array.push_back({{"role", role}, {"content", content}});
-    }
-    j["messages"] = messages_array;
-    j["n"] = completions;
-    std::string body = json::serialize(j);
-
-    // Perform request
-    auto response_lines = Http::request("POST", endpoint_chats_, headers_, body);
-
-    // Process response lines
-    for (auto const & streamparts : process_response_lines(response_lines)) {
-        co_yield streamparts;
     }
 
     co_return;
