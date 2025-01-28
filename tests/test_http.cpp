@@ -34,41 +34,41 @@ void test_http_client() {
 
     // Test GET with string
     std::cout << "\nTesting GET with string on HTTP URL:\n";
-    std::string response_str = Http::request_string("GET", http_get_url, span_headers);
+    std::string response_str = Http::request_string("GET", http_get_url, {}, span_headers);
     std::cout << response_str << "\n";
 
     std::cout << "\nTesting GET with string on HTTPS URL:\n";
-    response_str = Http::request_string("GET", https_get_url, span_headers);
+    response_str = Http::request_string("GET", https_get_url, {}, span_headers);
     std::cout << response_str << "\n";
 
     // Test GET with generator
     std::cout << "Testing GET with generator on HTTP URL:\n";
-    for (auto line : Http::request("GET", http_get_url, span_headers)) {
+    for (auto line : Http::request_lines("GET", http_get_url, {}, span_headers)) {
         std::cout << line << "\n";
     }
 
     std::cout << "\nTesting GET with generator on HTTPS URL:\n";
-    for (auto line : Http::request("GET", https_get_url, span_headers)) {
+    for (auto line : Http::request_lines("GET", https_get_url, {}, span_headers)) {
         std::cout << line << "\n";
     }
 
     // Test POST with string
     std::cout << "\nTesting POST with string on HTTP URL:\n";
-    response_str = Http::request_string("POST", http_post_url, span_headers, post_body);
+    response_str = Http::request_string("POST", http_post_url, post_body, span_headers);
     std::cout << response_str << "\n";
 
     std::cout << "\nTesting POST with string on HTTPS URL:\n";
-    response_str = Http::request_string("POST", https_post_url, span_headers, post_body);
+    response_str = Http::request_string("POST", https_post_url, post_body, span_headers);
     std::cout << response_str << "\n";
 
     // Test POST with generator
     std::cout << "\nTesting POST with generator on HTTP URL:\n";
-    for (auto line : Http::request("POST", http_post_url, span_headers, post_body)) {
+    for (auto line : Http::request_lines("POST", http_post_url, post_body, span_headers)) {
         std::cout << line << "\n";
     }
 
     std::cout << "\nTesting POST with generator on HTTPS URL:\n";
-    for (auto line : Http::request("POST", https_post_url, span_headers, post_body)) {
+    for (auto line : Http::request_lines("POST", https_post_url, post_body, span_headers)) {
         std::cout << line << "\n";
     }
 }

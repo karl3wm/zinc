@@ -39,6 +39,7 @@ static void validate_params(
 static std::generator<std::span<OpenAI::StreamPart>> process_response_lines(std::generator<std::string_view> & response_lines) {
 
     static thread_local std::vector<std::vector<std::pair<std::string_view, OpenAI::JSONValue>>> jsonvalues_list;
+    //static thread_local std::vector<std::unordered_map<std::string_view, OpenAI::JSONValue>> jsonvalues_list;
     static thread_local std::vector<OpenAI::StreamPart> streamparts;
 
     for (auto line : response_lines) {
@@ -53,22 +54,21 @@ static std::generator<std::span<OpenAI::StreamPart>> process_response_lines(std:
             if (choices.size() > jsonvalues_list.size()) {
                 jsonvalues_list.resize(choices.size());
             }
-            streamparts.resize(choices.size());
+            streamparts.clear();
             for (size_t idx = 0; idx < choices.size(); ++ idx) {
+                std::string_view text;
                 json::object & choice = choices[idx].get_object();
                 auto & jsonvalues = jsonvalues_list[idx];
-                auto & streampart = streamparts[idx];
-                jsonvalues.resize(choice.size());
-                streampart = {};
-                int key_idx = -1;
+                jsonvalues.clear();//resize(choice.size());
+                //int key_idx = -1;
                 for (const auto& [key, value] : choice) {
                     OpenAI::JSONValue val;
-                    ++ key_idx;
+                    //++ key_idx;
                     switch (value.kind()) {
                     case json::kind::string:
                         val = value.get_string();
                         if (key == "text") {
-				static_cast<std::string_view&>(streampart) = std::get<std::string_view>(val);
+                            text = std::get<std::string_view>(val);
                         }
                         break;
                     case json::kind::double_:
@@ -84,19 +84,23 @@ static std::generator<std::span<OpenAI::StreamPart>> process_response_lines(std:
                     case json::kind::object:
                         if (key == "delta") {
                             val = value.at("content").get_string();
-                            jsonvalues[key_idx].first = "delta.content";
-                            jsonvalues[key_idx].second = val;
-                            static_cast<std::string_view&>(streampart) = std::get<std::string_view>(val);
+                            //jsonvalues["delta.content"] = val;
+                            jsonvalues.emplace_back("delta.content", val);
+                            //jsonvalues[key_idx].first = "delta.content";
+                            //jsonvalues[key_idx].second = val;
+                            text = std::get<std::string_view>(val);
                             continue;
                         }
                         // fall-thru
                     default:
                         throw std::runtime_error("unexpected json value type");
                     }
-                    jsonvalues[key_idx].first = key;
-                    jsonvalues[key_idx].second = val;
+                    //jsonvalues[key] = val;
+                    jsonvalues.emplace_back(key, val);
+                    //jsonvalues[key_idx].first = key;
+                    //jsonvalues[key_idx].second = val;
                 }
-                streampart.data = jsonvalues;
+                streamparts.emplace_back(text, jsonvalues);
             }
 
             co_yield streamparts;
@@ -116,7 +120,7 @@ OpenAI::OpenAI(
     std::string_view url,
     std::string_view model,
     std::string_view key,
-    JSONValues const defaults)
+    std::vector<KeyJSONPair> defaults)
 : endpoint_completions_(std::string(url) + "/v1/completions"),
   endpoint_chats_(std::string(url) + "/v1/chat/completions"),
   bearer_("Bearer " + std::string(key)),
@@ -145,7 +149,7 @@ OpenAI::~OpenAI() = default;
 
 std::generator<OpenAI::StreamPart const&> OpenAI::complete(
     std::string_view prompt,
-    JSONValues const params
+    std::span<KeyJSONPair const> params
 ) const {
     static thread_local std::unordered_map<std::string_view, JSONValue> combined_params;
     combined_params.clear();
@@ -169,7 +173,7 @@ std::generator<OpenAI::StreamPart const&> OpenAI::complete(
     
 
     // Perform request
-    auto response_lines = Http::request("POST", endpoint_completions_, headers_, body);
+    auto response_lines = Http::request_lines("POST", endpoint_completions_, body, headers_);
 
     // Process response lines
     for (auto const& streamparts : process_response_lines(response_lines)) {
@@ -182,7 +186,7 @@ std::generator<OpenAI::StreamPart const&> OpenAI::complete(
 
 std::generator<OpenAI::StreamPart const&> OpenAI::chat(
     RoleContentPairs const messages,
-    JSONValues const params
+    std::span<KeyJSONPair const> params
 ) const {
     static thread_local std::unordered_map<std::string_view, JSONValue> combined_params;
     combined_params.clear();
@@ -210,7 +214,7 @@ std::generator<OpenAI::StreamPart const&> OpenAI::chat(
     std::string body = json::serialize(j);
 
     // Perform request
-    auto response_lines = Http::request("POST", endpoint_chats_, headers_, body);
+    auto response_lines = Http::request_lines("POST", endpoint_chats_, body, headers_);
 
     // Process response lines
     for (auto const& streamparts : process_response_lines(response_lines)) {

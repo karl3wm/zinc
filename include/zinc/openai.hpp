@@ -1,6 +1,7 @@
 #pragma once
 
 #include <generator> // C++23 generator support in GCC 14+
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -13,9 +14,9 @@ class OpenAI {
 public:
     using RoleContentPairs = std::span<std::pair<std::string_view, std::string_view>>;
     using JSONValue = std::variant<std::string_view, double, long, bool, std::nullptr_t>;
-    using JSONValues = std::span<std::pair<std::string_view, JSONValue>>;
+    using KeyJSONPair = std::pair<std::string_view, JSONValue>;
     struct StreamPart : public std::string_view {
-        JSONValues data; // Raw data returned by the server
+        std::span<KeyJSONPair> data; // Raw data returned by the server
     };
 
     /**
@@ -32,13 +33,13 @@ public:
      * @param url The base URL of the API endpoint (e.g., "https://api.openai.com").
      * @param model The model name to be used (e.g., "text-davinci-003").
      * @param key The API key for authentication.
-     * @param defaults Default parameters for requests.
+     * @param default_params Default parameters for requests.
      */
     OpenAI(
         std::string_view url,
         std::string_view model,
         std::string_view key,
-        JSONValues const defaults = {}
+        std::vector<KeyJSONPair> defaults = {}
     );
 
     /**
@@ -51,7 +52,7 @@ public:
      */
     std::generator<StreamPart const&> complete(
         std::string_view prompt,
-        JSONValues const params = {}
+        std::span<KeyJSONPair const> params = {}
     ) const;
 
     /**
@@ -62,7 +63,7 @@ public:
      */
     std::generator<StreamPart const&> chat(
         RoleContentPairs const messages,
-        JSONValues const params = {}
+        std::span<KeyJSONPair const> params = {}
     ) const;
 
 private:

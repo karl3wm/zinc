@@ -11,10 +11,6 @@ void test_completion(zinc::OpenAI& client) {
         std::cout << "Token: " << completion << std::endl;
         if (completion.size()) {
             ++ token_count;
-            if (token_count > 1) {
-                // Ensure more than one token is generated
-                break;
-            }
         }
     }
 
@@ -41,10 +37,6 @@ void test_chat(zinc::OpenAI& client) {
         std::cout << "Chat Token: " << completion << std::endl;
         if (completion.size()) {
             ++ token_count;
-            if (token_count > 1) {
-                // Ensure more than one token is generated
-                break;
-            }
         }
     }
 
@@ -62,7 +54,7 @@ int main() {
     std::string model = "Meta-Llama-3.1-405B-Instruct";
     std::string key = "d8957211-24e6-426d-90cc-b267ce681e4f";
 
-    zinc::OpenAI client(url, model, key);
+    zinc::OpenAI client(url, model, key, {{"max_tokens",4}});
 
     // Run the tests
     test_completion(client);
