@@ -1,8 +1,11 @@
-#include "zinc/openai.hpp"
+#include <array>
 #include <iostream>
-#include <vector>
 
-void test_completion(zinc::OpenAI& client) {
+#include <zinc/openai.hpp>
+
+using namespace zinc;
+
+void test_completion(OpenAI& client) {
     std::string prompt = "Once upon a time";
     std::cout << "Prompt: " << prompt << std::endl;
 
@@ -21,11 +24,11 @@ void test_completion(zinc::OpenAI& client) {
     }
 }
 
-void test_chat(zinc::OpenAI& client) {
-    std::vector<std::pair<std::string_view, std::string_view>> messages = {
+void test_chat(OpenAI& client) {
+    auto messages = std::to_array<OpenAI::RoleContentPair>({
         {"user", "Hello"},
         {"assistant", "Hi there!"}
-    };
+    });
 
     std::cout << "Chat Messages:" << std::endl;
     for ( auto & message : messages) {
@@ -50,11 +53,14 @@ void test_chat(zinc::OpenAI& client) {
 int main() {
     // Initialize the OpenAI with URL, model, and API key.
     // These values should be replaced
-    std::string url = "https://api.sambanova.ai";
-    std::string model = "Meta-Llama-3.1-405B-Instruct";
-    std::string key = "d8957211-24e6-426d-90cc-b267ce681e4f";
-
-    zinc::OpenAI client(url, model, key, {{"max_tokens",4}});
+    OpenAI client(
+        "https://api.sambanova.ai", // url
+        "Meta-Llama-3.1-405B-Instruct", // model
+        "d8957211-24e6-426d-90cc-b267ce681e4f", // api key
+        span<OpenAI::KeyJSONPair>({ // default parameters
+            {"max_tokens", 4}
+        })
+    );
 
     // Run the tests
     test_completion(client);

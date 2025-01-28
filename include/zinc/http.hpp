@@ -2,18 +2,21 @@
 
 #include <string>
 #include <string_view>
-#include <generator>
+
+#include <zinc/common.hpp>
 
 namespace zinc {
 
-class Http {
+class HTTP {
 public:
+    using Header = std::pair<std::string_view, std::string_view>;
+
     // Perform an HTTP request (GET or POST) with custom headers and yield lines as they are received
-    static std::generator<std::string_view> request_lines(
+    static zinc::generator<std::string_view> request_lines(
         std::string_view method,
         std::string_view url,
         std::string_view body = {},
-        std::span<const std::pair<std::string_view, std::string_view>> headers = {}
+        std::span<Header const> headers = {}
     );
 
     // Perform an HTTP request (GET or POST) with custom headers and return the entire response as a string
@@ -21,7 +24,7 @@ public:
         std::string_view method,
         std::string_view url,
         std::string_view body = {},
-        std::span<const std::pair<std::string_view, std::string_view>> headers = {}
+        std::span<Header const> headers = {}
     );
 };
 

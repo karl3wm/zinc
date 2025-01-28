@@ -106,7 +106,7 @@ struct LoanedConnection
         }
         return body;
     }
-    std::generator<std::string_view> http_lines()
+    zinc::generator<std::string_view> http_lines()
     {
         http::read_header(stream, buffer, res_parser);
         auto& res = res_parser.get();
@@ -228,7 +228,7 @@ private:
     }
 };
 
-std::string Http::request_string(std::string_view method, std::string_view url_str, std::string_view body, std::span<const std::pair<std::string_view, std::string_view>> headers) {
+std::string HTTP::request_string(std::string_view method, std::string_view url_str, std::string_view body, std::span<const std::pair<std::string_view, std::string_view>> headers) {
     URL url{url_str};
     std::string response;
     std::string key;
@@ -243,7 +243,7 @@ std::string Http::request_string(std::string_view method, std::string_view url_s
     }
 }
 
-std::generator<std::string_view> Http::request_lines(std::string_view method, std::string_view url_str, std::string_view body, std::span<const std::pair<std::string_view, std::string_view>> headers) {
+zinc::generator<std::string_view> HTTP::request_lines(std::string_view method, std::string_view url_str, std::string_view body, std::span<const std::pair<std::string_view, std::string_view>> headers) {
     URL url{url_str};
     std::string key;
     http::request<http::string_body> req;
@@ -251,11 +251,11 @@ std::generator<std::string_view> Http::request_lines(std::string_view method, st
     if (url.tls) {
         LoanedConnection<beast::ssl_stream<beast::tcp_stream>> loan(url);
         loan.request(method, url, body, headers);
-        co_yield std::ranges::elements_of(loan.http_lines());
+        co_yield zinc::ranges::elements_of(loan.http_lines());
     } else {
         LoanedConnection<beast::tcp_stream> loan(url);
         loan.request(method, url, body, headers);
-        co_yield std::ranges::elements_of(loan.http_lines());
+        co_yield zinc::ranges::elements_of(loan.http_lines());
     }
     co_return;
 }

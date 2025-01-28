@@ -36,7 +36,7 @@ static void validate_params(
 }
 
 // Helper function to process response lines
-static std::generator<std::span<OpenAI::StreamPart>> process_response_lines(std::generator<std::string_view> & response_lines) {
+static zinc::generator<std::span<OpenAI::StreamPart>> process_response_lines(zinc::generator<std::string_view> & response_lines) {
 
     static thread_local std::vector<std::vector<std::pair<std::string_view, OpenAI::JSONValue>>> jsonvalues_list;
     //static thread_local std::vector<std::unordered_map<std::string_view, OpenAI::JSONValue>> jsonvalues_list;
@@ -120,7 +120,7 @@ OpenAI::OpenAI(
     std::string_view url,
     std::string_view model,
     std::string_view key,
-    std::vector<KeyJSONPair> defaults)
+    std::span<KeyJSONPair const> defaults)
 : endpoint_completions_(std::string(url) + "/v1/completions"),
   endpoint_chats_(std::string(url) + "/v1/chat/completions"),
   bearer_("Bearer " + std::string(key)),
@@ -147,7 +147,7 @@ OpenAI::OpenAI(
 
 OpenAI::~OpenAI() = default;
 
-std::generator<OpenAI::StreamPart const&> OpenAI::complete(
+zinc::generator<OpenAI::StreamPart const&> OpenAI::complete(
     std::string_view prompt,
     std::span<KeyJSONPair const> params
 ) const {
@@ -173,7 +173,7 @@ std::generator<OpenAI::StreamPart const&> OpenAI::complete(
     
 
     // Perform request
-    auto response_lines = Http::request_lines("POST", endpoint_completions_, body, headers_);
+    auto response_lines = HTTP::request_lines("POST", endpoint_completions_, body, headers_);
 
     // Process response lines
     for (auto const& streamparts : process_response_lines(response_lines)) {
@@ -184,8 +184,8 @@ std::generator<OpenAI::StreamPart const&> OpenAI::complete(
     co_return;
 }
 
-std::generator<OpenAI::StreamPart const&> OpenAI::chat(
-    RoleContentPairs const messages,
+zinc::generator<OpenAI::StreamPart const&> OpenAI::chat(
+    std::span<RoleContentPair const> messages,
     std::span<KeyJSONPair const> params
 ) const {
     static thread_local std::unordered_map<std::string_view, JSONValue> combined_params;
@@ -214,7 +214,7 @@ std::generator<OpenAI::StreamPart const&> OpenAI::chat(
     std::string body = json::serialize(j);
 
     // Perform request
-    auto response_lines = Http::request_lines("POST", endpoint_chats_, body, headers_);
+    auto response_lines = HTTP::request_lines("POST", endpoint_chats_, body, headers_);
 
     // Process response lines
     for (auto const& streamparts : process_response_lines(response_lines)) {
