@@ -1,3 +1,10 @@
+// __generator.hpp from
+// origin repo: https://github.com/lewissbaker/generator
+// origin commit: e7c6c1c3009f0e9cf32add465b16f6295bfb9ac4 of
+// Log of New Changes
+// 2025-01-28 Karl Semich
+// 	- changed namespace from std to zinc
+
 #ifndef __STD_GENERATOR_INCLUDED
 #define __STD_GENERATOR_INCLUDED
 ///////////////////////////////////////////////////////////////////////////////
@@ -139,7 +146,7 @@ concept range = requires(_T& __t) {
 #endif // !__has_include(<ranges>)
 
 
-namespace std {
+namespace zinc {
 
 template <typename _T>
 class __manual_lifetime {
@@ -461,14 +468,14 @@ struct __generator_promise_base
 
     template <typename _OValue, typename _OAlloc>
     __yield_sequence_awaiter<generator<_Ref, _OValue, _OAlloc>>
-    yield_value(std::ranges::elements_of<generator<_Ref, _OValue, _OAlloc>> __g) noexcept {
+    yield_value(zinc::ranges::elements_of<generator<_Ref, _OValue, _OAlloc>> __g) noexcept {
         return std::move(__g).get();
     }
 
     template <std::ranges::range _Rng, typename _Allocator>
     __yield_sequence_awaiter<generator<_Ref, std::remove_cvref_t<_Ref>, _Allocator>>
-    yield_value(std::ranges::elements_of<_Rng, _Allocator> && __x) {
-        return [](allocator_arg_t, _Allocator alloc, auto && __rng) -> generator<_Ref, std::remove_cvref_t<_Ref>, _Allocator> {
+    yield_value(zinc::ranges::elements_of<_Rng, _Allocator> && __x) {
+        return [](std::allocator_arg_t, _Allocator alloc, auto && __rng) -> generator<_Ref, std::remove_cvref_t<_Ref>, _Allocator> {
             for(auto && e: __rng)
                 co_yield static_cast<decltype(e)>(e);
         }(std::allocator_arg, __x.get_allocator(), std::forward<_Rng>(__x.get()));
@@ -503,7 +510,7 @@ struct __generator_promise<generator<_Ref, _Value, _Alloc>, _ByteAllocator, _Exp
 
     template <std::ranges::range _Rng>
     typename __generator_promise_base<_Ref>::template __yield_sequence_awaiter<generator<_Ref, _Value, _Alloc>>
-    yield_value(std::ranges::elements_of<_Rng> && __x) {
+    yield_value(zinc::ranges::elements_of<_Rng> && __x) {
         static_assert (!_ExplicitAllocator,
         "This coroutine has an explicit allocator specified with std::allocator_arg so an allocator needs to be passed "
         "explicitely to std::elements_of");
@@ -517,39 +524,45 @@ struct __generator_promise<generator<_Ref, _Value, _Alloc>, _ByteAllocator, _Exp
 template<typename _Alloc>
 using __byte_allocator_t = typename std::allocator_traits<std::remove_cvref_t<_Alloc>>::template rebind_alloc<std::byte>;
 
+} // namespace zinc
+
+namespace std {
 
 // Type-erased allocator with default allocator behaviour.
 template<typename _Ref, typename _Value, typename... _Args>
-struct coroutine_traits<generator<_Ref, _Value>, _Args...> {
-    using promise_type = __generator_promise<generator<_Ref, _Value>, std::allocator<std::byte>>;
+struct coroutine_traits<zinc::generator<_Ref, _Value>, _Args...> {
+    using promise_type = zinc::__generator_promise<zinc::generator<_Ref, _Value>, std::allocator<std::byte>>;
 };
 
 // Type-erased allocator with std::allocator_arg parameter
 template<typename _Ref, typename _Value, typename _Alloc, typename... _Args>
-struct coroutine_traits<generator<_Ref, _Value>, allocator_arg_t, _Alloc, _Args...> {
+struct coroutine_traits<zinc::generator<_Ref, _Value>, allocator_arg_t, _Alloc, _Args...> {
 private:
-    using __byte_allocator = __byte_allocator_t<_Alloc>;
+    using __byte_allocator = zinc::__byte_allocator_t<_Alloc>;
 public:
-    using promise_type = __generator_promise<generator<_Ref, _Value>, __byte_allocator, true /*explicit Allocator*/>;
+    using promise_type = zinc::__generator_promise<zinc::generator<_Ref, _Value>, __byte_allocator, true /*explicit Allocator*/>;
 };
 
 // Type-erased allocator with std::allocator_arg parameter (non-static member functions)
 template<typename _Ref, typename _Value, typename _This, typename _Alloc, typename... _Args>
-struct coroutine_traits<generator<_Ref, _Value>, _This, allocator_arg_t, _Alloc, _Args...> {
+struct coroutine_traits<zinc::generator<_Ref, _Value>, _This, allocator_arg_t, _Alloc, _Args...> {
 private:
-    using __byte_allocator = __byte_allocator_t<_Alloc>;
+    using __byte_allocator = zinc::__byte_allocator_t<_Alloc>;
 public:
-    using promise_type = __generator_promise<generator<_Ref, _Value>, __byte_allocator,  true /*explicit Allocator*/>;
+    using promise_type = zinc::__generator_promise<zinc::generator<_Ref, _Value>, __byte_allocator,  true /*explicit Allocator*/>;
 };
 
 // Generator with specified allocator type
 template<typename _Ref, typename _Value, typename _Alloc, typename... _Args>
-struct coroutine_traits<generator<_Ref, _Value, _Alloc>, _Args...> {
-    using __byte_allocator = __byte_allocator_t<_Alloc>;
+struct coroutine_traits<zinc::generator<_Ref, _Value, _Alloc>, _Args...> {
+    using __byte_allocator = zinc::__byte_allocator_t<_Alloc>;
 public:
-    using promise_type = __generator_promise<generator<_Ref, _Value, _Alloc>, __byte_allocator>;
+    using promise_type = zinc::__generator_promise<zinc::generator<_Ref, _Value, _Alloc>, __byte_allocator>;
 };
 
+} // namespace std
+
+namespace zinc {
 
 // TODO :  make layout compatible promise casts possible
 template <typename _Ref, typename _Value, typename _Alloc>
@@ -791,15 +804,17 @@ private:
     bool __started_ = false;
 };
 
+} // namespace zinc
+
 #if __has_include(<ranges>)
+namespace std {
 namespace ranges {
 
 template <typename _T, typename _U, typename _Alloc>
-constexpr inline bool enable_view<generator<_T, _U, _Alloc>> = true;
+constexpr inline bool enable_view<zinc::generator<_T, _U, _Alloc>> = true;
 
 } // namespace ranges
-#endif
-
 } // namespace std
+#endif
 
 #endif // __STD_GENERATOR_INCLUDED
