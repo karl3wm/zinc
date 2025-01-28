@@ -1,7 +1,6 @@
 #pragma once
 
 #include <generator> // C++23 generator support in GCC 14+
-#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
