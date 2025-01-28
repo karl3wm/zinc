@@ -3,7 +3,14 @@
 // origin commit: e7c6c1c3009f0e9cf32add465b16f6295bfb9ac4 of
 // Log of New Changes
 // 2025-01-28 Karl Semich
-// 	- changed namespace from std to zinc
+//      - changed namespace from std to zinc
+//      changed to eagerly execute so coroutine can process passed temporaries:
+//      - __generator_promise_base: initial_suspend returns never_suspend{}
+//                  this makes the function produce a value as soon as called
+//      - __yield_sequence_awaiter: await_suspend moves value over resuming
+//                  this prevents elements_of from skipping that new value
+//      - ~generator(): destruct value whether iteration started or not
+//      - begin(): do not resume the coroutine, it already eagerly executed
 
 #ifndef __STD_GENERATOR_INCLUDED
 #define __STD_GENERATOR_INCLUDED
@@ -366,7 +373,7 @@ struct __generator_promise_base
         }
     }
 
-    std::suspend_always initial_suspend() noexcept {
+    std::suspend_never initial_suspend() noexcept {
         return {};
     }
 
@@ -454,8 +461,13 @@ struct __generator_promise_base
             __nested.__exception_.construct();
             __root.__parentOrLeaf_ = __gen_.__get_coro();
 
-            // Immediately resume the nested coroutine (nested generator)
-            return __gen_.__get_coro();
+            // Because the nested generator was not initially suspended,
+            // it no longer needs to be immediately resumed.
+            // However, it now has a value that needs to be moved up.
+            std::swap(__root.__value_, __nested.__value_);
+            return std::noop_coroutine();
+            //// Immediately resume the nested coroutine (nested generator)
+            //return __gen_.__get_coro();
         }
 
         void await_resume() {
@@ -584,7 +596,7 @@ public:
 
     ~generator() noexcept {
         if (__coro_) {
-            if (__started_ && !__coro_.done()) {
+            if (/*__started_ && */!__coro_.done()) {
                 __coro_.promise().__value_.destruct();
             }
             __coro_.destroy();
@@ -656,7 +668,7 @@ public:
         assert(__coro_);
         assert(!__started_);
         __started_ = true;
-        __coro_.resume();
+        //__coro_.resume();
         return iterator{__coro_};
     }
 
@@ -698,7 +710,7 @@ public:
 
     ~generator() noexcept {
         if (__coro_) {
-            if (__started_ && !__coro_.done()) {
+            if (/*__started_ && */!__coro_.done()) {
                 __promise_->__value_.destruct();
             }
             __coro_.destroy();
@@ -776,7 +788,7 @@ public:
         assert(__coro_);
         assert(!__started_);
         __started_ = true;
-        __coro_.resume();
+        //__coro_.resume();
         return iterator{__promise_, __coro_};
     }
 
