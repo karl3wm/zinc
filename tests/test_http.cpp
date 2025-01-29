@@ -18,10 +18,11 @@ void test_http_client() {
     const std::string_view https_post_url = "https://jsonplaceholder.typicode.com/posts";
 
     // Define headers for testing
-    auto headers = std::to_array<HTTP::Header>({
-        {"User-Agent", "zinc-http-client"},
-        {"Accept", "application/json"}
-    });
+    //auto headers = std::to_array<HTTP::Header>({
+#define headers span<HTTP::Header>({\
+        {"User-Agent", "zinc-http-client"},\
+        {"Accept", "application/json"}\
+    })
 
     // Define body for POST requests
     std::string_view post_body = R"({"title": "foo", "body": "bar", "userId": 1})";
@@ -71,3 +72,5 @@ int main() {
     test_http_client();
     return 0;
 }
+
+// vim: set ts=4 sw=4 et:
