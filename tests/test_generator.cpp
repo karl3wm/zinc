@@ -45,9 +45,9 @@ generator<IntP> throws_later()
     throw std::runtime_error("later exception");
 }
 
-generator<IntP> elements_of(generator<IntP> && gen)
+generator<IntP> elements_of(generator<IntP>(gen)())
 {
-    co_yield ranges::elements_of(std::forward<generator<IntP>>(gen));
+    co_yield ranges::elements_of(gen());
 }
 
 int main()
@@ -99,8 +99,13 @@ int main()
         std::cerr << "generator initial exception test passed" << std::endl;
     }
 
+    if (IntP::leaks != 0) {
+        throw std::logic_error("yielded values were leaked");
+    }
+    std::cerr << "yielded value leak test passed" << std::endl;
+
     i = 0;
-    for (int i_ : elements_of(iterates_normally())) {
+    for (int i_ : elements_of(iterates_normally)) {
         i += i_;
     }
     if (i != 6) {
@@ -109,7 +114,7 @@ int main()
     std::cerr << "normal elemens_of test passed" << std::endl;
 
     i = 0;
-    for (int i_ : elements_of(iterates_normally())) {
+    for (int i_ : elements_of(iterates_normally)) {
         i += i_;
         break;
     }
@@ -120,7 +125,7 @@ int main()
 
     try {
         i = 0;
-        for (int i_ : elements_of(throws_later())) {
+        for (int i_ : elements_of(throws_later)) {
             i += i_;
         }
         throw std::logic_error("elements_of iteration exception never thrown");
@@ -133,7 +138,7 @@ int main()
 
     try {
         i = 0;
-        for (int i_ : elements_of(throws_initially())) {
+        for (int i_ : elements_of(throws_initially)) {
             i += i_;
         }
         throw std::logic_error("elements_of initial exception never thrown");
