@@ -89,5 +89,3 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
 
     return 0;
 }
-
-// vim: set ts=4 sw=4 et:

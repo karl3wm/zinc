@@ -45,5 +45,3 @@ int main()
         std::cerr << "generator initial exception test passed" << std::endl;
     }
 }
-
-// vim: set ts=4 sw=4 et:

@@ -226,5 +226,3 @@ zinc::generator<OpenAI::StreamPart const&> OpenAI::chat(
 }
 
 } // namespace zinc
-
-// vim: set ts=4 sw=4 et:

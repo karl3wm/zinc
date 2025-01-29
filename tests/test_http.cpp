@@ -72,5 +72,3 @@ int main() {
     test_http_client();
     return 0;
 }
-
-// vim: set ts=4 sw=4 et:
