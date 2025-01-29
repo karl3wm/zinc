@@ -12,6 +12,8 @@
 
 namespace zinc {
 
+using std::generator;
+
 using StringViewPair = std::pair<std::string_view, std::string_view>;
 using StringPair = std::pair<std::string, std::string>;
 
@@ -29,3 +31,5 @@ std::string replaced(
 );
 
 }
+
+// vim: set ts=4 sw=4 et:

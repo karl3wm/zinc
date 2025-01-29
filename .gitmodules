@@ -1,0 +1,3 @@
+[submodule "third_party/generator"]
+	path = third_party/generator
+	url = https://github.com/lewissbaker/generator
