@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <vector>
 
@@ -29,7 +30,14 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
     auto now = std::chrono::system_clock::now();
     // Format the time in ISO 8601
     // Create the logfile
-    std::ofstream logf(std::format("{:%FT%TZ}.log",now));
+    std::ofstream logf;
+    std::stringstream logfn_ss;
+    {
+        std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
+        std::tm now_tm = *std::localtime(&now_time_t);
+        logfn_ss << std::put_time(&now_tm, "%FT%TZ.log");
+        logf.open(logfn_ss.str());
+    }
 
     std::vector<zinc::OpenAI::RoleContentPair> messages;
     std::string msg;

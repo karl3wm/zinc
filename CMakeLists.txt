@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Find Boost
-find_package(Boost 1.83.0 REQUIRED COMPONENTS url json)
+find_package(Boost 1.81.0 REQUIRED COMPONENTS url json)
 find_package(OpenSSL REQUIRED) # for boost networking
 
 # Include directories
