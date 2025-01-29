@@ -53,8 +53,8 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
     logf << std::fixed << std::setprecision(3);
 
     while ("end of input not reached") {
-        std::cerr << "user: " << std::flush;
         if (msg.empty()) {
+            std::cerr << "user: " << std::flush;
             std::getline(std::cin, msg);
             if (!std::cin) {
                 break;
