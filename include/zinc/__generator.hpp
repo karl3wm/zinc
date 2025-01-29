@@ -11,6 +11,16 @@
 //                  this prevents elements_of from skipping that new value
 //      - ~generator(): destruct value whether iteration started or not
 //      - begin(): do not resume the coroutine, it already eagerly executed
+// 2025-01-29 Karl Semich
+//      addressed double-free if a coroutine throws before ever suspending
+//      - __generator_promise_base: added __presuspend_generator_ pointer
+//      - generator: __presuspend_generator is set on construction
+//      - __generator_promise_base: yield_value unsets __presuspend_generator
+//      - unhandled_exception clears __presuspend_generator's coroutine handle
+//              this prevents the generator from destroying the promise,
+//              when the runtime will destroy it again during unwinding of
+//              the coroutine construction
+//      - moved __value_.destruct() from __generator_promise_base to generator
 
 #ifndef __STD_GENERATOR_INCLUDED
 #define __STD_GENERATOR_INCLUDED
@@ -343,14 +353,14 @@ public:
     }
 };
 
-template<typename _Ref>
+template<typename _Ref, typename _Generator>
 struct __generator_promise_base
 {
-    template <typename _Ref2, typename _Value, typename _Alloc>
-    friend class generator;
+    friend _Generator;
 
     __generator_promise_base* __root_;
     std::coroutine_handle<> __parentOrLeaf_;
+    _Generator* __presuspend_generator_;
     // Note: Using manual_lifetime here to avoid extra calls to exception_ptr
     // constructor/destructor in cases where it is not needed (i.e. where this
     // generator coroutine is not used as a nested coroutine).
@@ -370,6 +380,12 @@ struct __generator_promise_base
             // have constructed its __exception_ member which needs to be
             // destroyed here.
             __exception_.destruct();
+        } else {
+            auto thisCoro =
+                std::coroutine_handle<__generator_promise_base>::from_promise(*this);
+            if (__presuspend_generator_ == nullptr && !thisCoro.done()) {
+                __value_.destruct();
+            }
         }
     }
 
@@ -383,6 +399,9 @@ struct __generator_promise_base
         if (__root_ != this) {
             __exception_.get() = std::current_exception();
         } else {
+            if (__presuspend_generator_ != nullptr) {
+                __presuspend_generator_->__coro_ = nullptr;
+            }
             throw;
         }
     }
@@ -416,6 +435,7 @@ struct __generator_promise_base
     std::suspend_always yield_value(_Ref&& __x)
             noexcept(std::is_nothrow_move_constructible_v<_Ref>) {
         __root_->__value_.construct((_Ref&&)__x);
+        __presuspend_generator_ = nullptr;
         return {};
     }
 
@@ -426,6 +446,7 @@ struct __generator_promise_base
     std::suspend_always yield_value(_T&& __x)
             noexcept(std::is_nothrow_constructible_v<_Ref, _T>) {
         __root_->__value_.construct((_T&&)__x);
+        __presuspend_generator_ = nullptr;
         return {};
     }
 
@@ -464,7 +485,7 @@ struct __generator_promise_base
             // Because the nested generator was not initially suspended,
             // it no longer needs to be immediately resumed.
             // However, it now has a value that needs to be moved up.
-            std::swap(__root.__value_, __nested.__value_);
+            std::swap(__root.__value_.get(), __nested.__value_.get());
             return std::noop_coroutine();
             //// Immediately resume the nested coroutine (nested generator)
             //return __gen_.__get_coro();
@@ -481,16 +502,20 @@ struct __generator_promise_base
     template <typename _OValue, typename _OAlloc>
     __yield_sequence_awaiter<generator<_Ref, _OValue, _OAlloc>>
     yield_value(zinc::ranges::elements_of<generator<_Ref, _OValue, _OAlloc>> __g) noexcept {
-        return std::move(__g).get();
+        auto awaiter = std::move(__g).get();
+        __presuspend_generator_ = nullptr;
+        return awaiter;
     }
 
     template <std::ranges::range _Rng, typename _Allocator>
     __yield_sequence_awaiter<generator<_Ref, std::remove_cvref_t<_Ref>, _Allocator>>
     yield_value(zinc::ranges::elements_of<_Rng, _Allocator> && __x) {
-        return [](std::allocator_arg_t, _Allocator alloc, auto && __rng) -> generator<_Ref, std::remove_cvref_t<_Ref>, _Allocator> {
+        auto awaiter = [](std::allocator_arg_t, _Allocator, auto && __rng) -> generator<_Ref, std::remove_cvref_t<_Ref>, _Allocator> {
             for(auto && e: __rng)
                 co_yield static_cast<decltype(e)>(e);
         }(std::allocator_arg, __x.get_allocator(), std::forward<_Rng>(__x.get()));
+        __presuspend_generator_ = nullptr;
+        return awaiter;
     }
 
     void resume() {
@@ -506,10 +531,12 @@ struct __generator_promise;
 
 template<typename _Ref, typename _Value, typename _Alloc, typename _ByteAllocator, bool _ExplicitAllocator>
 struct __generator_promise<generator<_Ref, _Value, _Alloc>, _ByteAllocator, _ExplicitAllocator> final
-    : public __generator_promise_base<_Ref>
+    : public __generator_promise_base<_Ref, generator<_Ref, _Value, _Alloc>>
     , public __promise_base_alloc<_ByteAllocator> {
+    using __promise_base = __generator_promise_base<_Ref, generator<_Ref, _Value, _Alloc>>;
+
     __generator_promise() noexcept
-    : __generator_promise_base<_Ref>(std::coroutine_handle<__generator_promise>::from_promise(*this))
+    : __promise_base(std::coroutine_handle<__generator_promise>::from_promise(*this))
     {}
 
     generator<_Ref, _Value, _Alloc> get_return_object() noexcept {
@@ -518,10 +545,10 @@ struct __generator_promise<generator<_Ref, _Value, _Alloc>, _ByteAllocator, _Exp
         };
     }
 
-    using __generator_promise_base<_Ref>::yield_value;
+    using __promise_base::yield_value;
 
     template <std::ranges::range _Rng>
-    typename __generator_promise_base<_Ref>::template __yield_sequence_awaiter<generator<_Ref, _Value, _Alloc>>
+    typename __promise_base::template __yield_sequence_awaiter<generator<_Ref, _Value, _Alloc>>
     yield_value(zinc::ranges::elements_of<_Rng> && __x) {
         static_assert (!_ExplicitAllocator,
         "This coroutine has an explicit allocator specified with std::allocator_arg so an allocator needs to be passed "
@@ -596,9 +623,10 @@ public:
 
     ~generator() noexcept {
         if (__coro_) {
-            if (/*__started_ && */!__coro_.done()) {
-                __coro_.promise().__value_.destruct();
-            }
+            //// moved to ~_generator_promise_base
+            //if (/*__started_ && */!__coro_.done()) {
+            //    __coro_.promise().__value_.destruct();
+            //}
             __coro_.destroy();
         }
     }
@@ -679,6 +707,7 @@ public:
 private:
     explicit generator(__coroutine_handle __coro) noexcept
         : __coro_(__coro) {
+        __coro_.promise().__presuspend_generator_ = this;
     }
 
 public: // to get around access restrictions for __yield_sequence_awaitable
@@ -693,7 +722,8 @@ private:
 // Specialisation for type-erased allocator implementation.
 template <typename _Ref, typename _Value>
 class generator<_Ref, _Value, use_allocator_arg> {
-    using __promise_base = __generator_promise_base<_Ref>;
+    using __promise_base = __generator_promise_base<_Ref, generator<_Ref, _Value, use_allocator_arg>>;
+    friend __promise_base;
 public:
 
     generator() noexcept 
@@ -710,9 +740,10 @@ public:
 
     ~generator() noexcept {
         if (__coro_) {
-            if (/*__started_ && */!__coro_.done()) {
-                __promise_->__value_.destruct();
-            }
+            //// moved to ~_generator_promise_base
+            //if (/*__started_ && */!__coro_.done()) {
+            //    __promise_->__value_.destruct();
+            //}
             __coro_.destroy();
         }
     }
@@ -804,7 +835,9 @@ private:
     explicit generator(std::coroutine_handle<_Promise> __coro) noexcept
         : __promise_(std::addressof(__coro.promise()))
         , __coro_(__coro)
-    {}
+    {
+        __promise_->__presuspend_generator_ = this;
+    }
 
 public: // to get around access restrictions for __yield_sequence_awaitable
     std::coroutine_handle<> __get_coro() noexcept { return __coro_; }

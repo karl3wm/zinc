@@ -1,30 +1,77 @@
 #include <zinc/common.hpp>
 
-#include <stdexcept>
 #include <iostream>
+#include <stdexcept>
+#include <unordered_set>
 
 using namespace zinc;
 
 struct IntP
 {
-    static size_t leaks;
+    static size_t next_id;
+    static std::unordered_set<size_t> leaked_ids;
 
     IntP(int i)
     : storage(new int(i))
-    { ++ leaks; }
+    , id(next_id ++)
+    { leaked_ids.insert(id); }
 
-    operator int()
+    IntP(IntP const & other) noexcept
+    : storage(nullptr), id(~0)
+    { *this = other; }
+
+    IntP(IntP && other) noexcept
+    : storage(nullptr), id(~0)
+    { *this = std::move(other); }
+
+    ~IntP() noexcept
+    { clear(); }
+
+    IntP& operator=(IntP const & other) noexcept
+    {
+        clear();
+        if (other.storage == nullptr) {
+            storage = nullptr;
+        } else {
+            storage = new int((int)other);
+            id = next_id ++;
+            leaked_ids.insert(id);
+        }
+        return *this;
+    }
+
+    IntP& operator=(IntP && other) noexcept
+    {
+        clear();
+        storage = other.storage;
+        id = other.id;
+        other.clear_();
+        return *this;
+    }
+
+    operator int() const noexcept
     { return *storage; }
 
-    ~IntP()
+    void clear() noexcept
     {
-        delete storage;
-        -- leaks;
+        if (storage != nullptr) {
+            delete storage;
+            leaked_ids.erase(id);
+            clear_();
+        }
+    }
+
+    void clear_() noexcept
+    {
+        storage = nullptr;
+        id = ~0;
     }
 
     int* storage;
+    size_t id;
 };
-size_t IntP::leaks = 0;
+size_t IntP::next_id = 0;
+std::unordered_set<size_t> IntP::leaked_ids{};
 
 generator<IntP> iterates_normally()
 {
@@ -63,6 +110,11 @@ int main()
     }
     std::cerr << "normal iteration test passed" << std::endl;
 
+    if (!IntP::leaked_ids.empty()) {
+        throw std::logic_error("yielded values were leaked");
+    }
+    std::cerr << "yielded value leak test passed" << std::endl;
+
     i = 0;
     for (int i_ : iterates_normally()) {
         i += i_;
@@ -99,7 +151,7 @@ int main()
         std::cerr << "generator initial exception test passed" << std::endl;
     }
 
-    if (IntP::leaks != 0) {
+    if (!IntP::leaked_ids.empty()) {
         throw std::logic_error("yielded values were leaked");
     }
     std::cerr << "yielded value leak test passed" << std::endl;
@@ -149,7 +201,7 @@ int main()
         std::cerr << "elements_of initial exception test passed" << std::endl;
     }
 
-    if (IntP::leaks != 0) {
+    if (!IntP::leaked_ids.empty()) {
         throw std::logic_error("yielded values were leaked");
     }
     std::cerr << "yielded value leak test passed" << std::endl;
