@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <vector>
 
 std::string escaped(std::string_view str)

@@ -42,15 +42,12 @@ foreach(TOOL_SOURCE IN LISTS TOOL_SOURCES)
     target_link_libraries(${TOOL_NAME} PRIVATE zinc)
 endforeach()
 
-# Optional: If you need to specify compiler-specific flags or requirements
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    option(ENABLE_ASAN "Enable AddressSanitizer" ON)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines -Wall -Wextra -pedantic")
-    if(ENABLE_ASAN)
-        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -ggdb -Werror -fsanitize=address,leak,undefined")
-    else()
-        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -ggdb -Werror -fsanitize=undefined")
-    endif()
+option(ENABLE_ASAN "Enable AddressSanitizer" ON)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -pedantic")
+if(ENABLE_ASAN)
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -ggdb -Werror -fsanitize=address,leak,undefined")
+else()
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -ggdb -Werror -fsanitize=undefined")
 endif()
 
 # Optional: Install targets if needed

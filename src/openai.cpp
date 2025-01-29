@@ -142,7 +142,7 @@ OpenAI::OpenAI(
         }
         defaults_map[key] = v;
     }
-    defaults_ = std::move(decltype(defaults_)(defaults_map.begin(), defaults_map.end()));
+    defaults_ = decltype(defaults_)(defaults_map.begin(), defaults_map.end());
 }
 
 OpenAI::~OpenAI() = default;
@@ -166,7 +166,7 @@ zinc::generator<OpenAI::StreamPart const&> OpenAI::complete(
     // Build request body
     json::object j;
     for (const auto& [key, value] : combined_params) {
-        std::visit([&](const auto& val) { j[key] = val; }, value);
+        std::visit([&,key=key](const auto& val) { j[key] = val; }, value);
     }
     j["prompt"] = prompt;
     std::string body = json::serialize(j);
@@ -204,7 +204,7 @@ zinc::generator<OpenAI::StreamPart const&> OpenAI::chat(
     // Build request body
     json::object j;
     for (const auto& [key, value] : combined_params) {
-        std::visit([&](const auto& val) { j[key] = val; }, value);
+        std::visit([&,key=key](const auto& val) { j[key] = val; }, value);
     }
     json::array messages_array;
     for (const auto& [role, content] : messages) {

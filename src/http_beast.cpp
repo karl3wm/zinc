@@ -185,7 +185,7 @@ private:
         {
             std::stringstream ss;
             ss << (url.tls ? "https://" : "http://") << url.host << ":" << url.port;
-            key = std::move(ss.str());
+            key = ss.str();
         }
         // Check if connection is cached
         {

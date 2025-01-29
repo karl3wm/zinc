@@ -17,7 +17,11 @@ public:
     using KeyJSONPair = std::pair<std::string_view, JSONValue>;
 
     struct StreamPart : public std::string_view {
+
         std::span<KeyJSONPair> data; // Raw data returned by the server
+
+        StreamPart(std::string_view text, std::span<KeyJSONPair> data)
+        : std::string_view(text), data(data) { }
     };
 
     /**
