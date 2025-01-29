@@ -12,7 +12,7 @@ namespace zinc {
 
 class OpenAI {
 public:
-    using RoleContentPair = std::pair<std::string, std::string>;
+    using RoleContentPair = StringPair;
     using JSONValue = std::variant<std::string_view, double, long, bool, std::nullptr_t>;
     using KeyJSONPair = std::pair<std::string_view, JSONValue>;
 

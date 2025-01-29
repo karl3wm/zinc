@@ -9,7 +9,7 @@ namespace zinc {
 
 class HTTP {
 public:
-    using Header = std::pair<std::string_view, std::string_view>;
+    using Header = StringViewPair;
 
     // Perform an HTTP request (GET or POST) with custom headers and yield lines as they are received
     static zinc::generator<std::string_view> request_lines(
