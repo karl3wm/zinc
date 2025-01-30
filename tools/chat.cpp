@@ -54,12 +54,14 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
     logf << std::fixed << std::setprecision(3);
 
     while ("end of input not reached") {
+        std::cerr << std::endl << "user: " << std::flush;
         if (msg.empty()) {
-            std::cerr << "user: " << std::flush;
             std::getline(std::cin, msg);
             if (!std::cin) {
                 break;
             }
+        } else {
+            std::cerr << msg << std::endl;
         }
 
         // Get the current date and time
@@ -72,7 +74,7 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
         // be nice to read more lines if there is content in cin's buffer
         // this would handle accidental pastes, for example
 
-        std::cerr << "assistant: " << std::flush;
+        std::cerr << std::endl << "assistant: " << std::flush;
         for (auto&& part : client.chat(messages)) {
             msg += part;
             std::cout << part << std::flush;
