@@ -33,9 +33,20 @@ struct BackendState {
     net::io_context ioc;
     std::mutex mtx;
     std::unordered_map<std::string, std::variant<beast::tcp_stream, beast::ssl_stream<beast::tcp_stream>>> connection_cache;
-    static BackendState& instance() {
+    static BackendState& instance()
+    {
         static BackendState state;
         return state;
+    }
+    static void tls_info_callback(const SSL* ssl, int where, int ret)
+    {
+        if (where & SSL_CB_ALERT) {
+            if ((ret>>8) == SSL3_AL_WARNING && (ret&0xff) == SSL_AD_CLOSE_NOTIFY) {
+                std::lock_guard<std::mutex> lock(BackendState::instance().mtx);
+                auto socket = (net::ip::tcp::socket*)SSL_CTX_get_ex_data(SSL_get_SSL_CTX(ssl), 1);
+                socket->close();
+            }
+        }
     }
 };
 
@@ -71,55 +82,102 @@ void ssl_key_log_callback(const SSL *, const char *line) {
         std::cerr << "Failed to open SSL key log file." << std::endl;
     }
 }
-*/
+//*/
 
 template<typename StreamType>
 struct LoanedConnection
 {
     // Shared helper functions for common setup steps
     LoanedConnection(URL const& url)
-    : stream(connect(url)),
-      check_res_parser(false)
-    { }
-    void request(const std::string_view method, URL const& url, std::string_view body, std::span<const std::pair<std::string_view, std::string_view>> headers)
+    : url(url)
+    , check_res_parser(false)
+    {
+        connect();
+    }
+    void request(const std::string_view method, std::string_view body, std::span<HTTP::Header const> headers)
     {
         req = http::request<http::string_body>{method == "GET" ? http::verb::get : http::verb::post, url.path, 11};
         req.set(http::field::host, url.host);
         req.set(http::field::user_agent, "zinc-http-client");
+        req.set(http::field::connection, "keep-alive");
+        req.set(http::field::keep_alive, "timeout=3600");
         for (const auto& [key, value] : headers) {
             req.set(key.data(), value.data());
         }
-        req.set(http::field::connection, "keep-alive");
-        if (!body.empty() && method == "POST") {
-            req.body() = std::string(body);
-            req.prepare_payload();
+        if (!body.empty() && req.method() == http::verb::post) {
+            req.body() = body;
         }
-        http::write(stream, req);
+        req.prepare_payload();
+        //if (body.empty() || method == "GET") {
+        http::write(*stream, req);
+        //} else {
+        //    http::serializer<false, http::string_body> sr{req};
+        //    http::write_header(*stream, sr);
+        //    http::write(*stream, sr);
+        //}
     }
-    std::string http_string()
+    std::string http_string(std::string_view method, std::string_view req_body, std::span<HTTP::Header const> headers)
     {
         http::response<http::dynamic_body> res;
-        http::read(stream, buffer, res);
-        std::string body = buffers_to_string(res.body().data());
-        if (res.result_int() / 100 != 2) {
-            throw std::runtime_error(std::string(res.reason()) + body);
+        request(method, req_body, headers);
+        try {
+            http::read(*stream, buffer, res);
+        } catch (boost::system::system_error & se) {
+            if (res.body().size() == 0 && buffer.size() == 0) {
+                switch (se.code().value()) {
+                default:
+                    throw;
+                case net::error::no_permission:
+                case net::error::eof:
+                case net::error::connection_reset:
+                    connect();
+                    request(method, req_body, headers);
+                    http::read(*stream, buffer, res);
+                }
+            } else {
+                throw;
+            }
         }
-        return body;
-    }
-    zinc::generator<std::string_view> http_lines()
-    {
-        http::read_header(stream, buffer, res_parser);
-        auto& res = res_parser.get();
+
+        std::string res_body = buffers_to_string(res.body().data());
         if (res.result_int() / 100 != 2) {
-            http::read(stream, buffer, res_parser);
+            throw std::runtime_error(std::string(res.reason()) + res_body);
+        }
+        return res_body;
+    }
+    zinc::generator<std::string_view> http_lines(std::string_view method, std::string_view req_body, std::span<HTTP::Header const> headers)
+    {
+        auto& res = res_parser.get();
+        auto& res_buffer = res.body();
+        request(method, req_body, headers);
+        try {
+            http::read_header(*stream, buffer, res_parser);
+        } catch (boost::system::system_error & se) {
+            if (res_buffer.size() == 0 && buffer.size() == 0) {
+                switch (se.code().value()) {
+                default:
+                    throw;
+                case net::error::no_permission:
+                case net::error::eof:
+                case net::error::connection_reset:
+                    connect();
+                    request(method, req_body, headers);
+                    http::read_header(*stream, buffer, res_parser);
+                }
+            } else {
+                throw;
+            }
+        }
+
+        if (res.result_int() / 100 != 2) {
+            http::read(*stream, buffer, res_parser);
             throw std::runtime_error(std::string(res.reason()) + beast::buffers_to_string(res.body().data()));
         }
 
         check_res_parser = true;
 
-        auto& res_buffer = res.body();
         while (!res_parser.is_done()) {
-            size_t bytesRead = http::read_some(stream, buffer, res_parser);
+            size_t bytesRead = http::read_some(*stream, buffer, res_parser);
             if (res_buffer.size() == 0) {
                 if (bytesRead == 0) {
                     break;
@@ -155,31 +213,40 @@ struct LoanedConnection
     ~LoanedConnection()
     {
         if (check_res_parser) {
+            if (!res_parser.get().keep_alive()) {
+                return;
+            }
             while (buffer.size()) {
-                http::read_some(stream, buffer, res_parser);
+                http::read_some(*stream, buffer, res_parser);
             }
             if (!res_parser.is_done()) {
                 return;
             }
         }
-        {
+        if (connected()) {
             std::lock_guard<std::mutex> lock(BackendState::instance().mtx);
+            auto it = BackendState::instance().connection_cache.find(key);
+            if (it != BackendState::instance().connection_cache.end()) {
+                // because we know this one is connected, erasing the other is reasonable
+                BackendState::instance().connection_cache.erase(it);
+            }
+            it = BackendState::instance().connection_cache.emplace(key,std::move(static_cast<StreamType&>(*this->stream))).first;
             if constexpr (std::is_same_v<StreamType, beast::ssl_stream<beast::tcp_stream>>) {
-                BackendState::instance().connection_cache.emplace(key,std::move(static_cast<beast::ssl_stream<beast::tcp_stream>&>(stream)));
-            } else {
-                BackendState::instance().connection_cache.emplace(key,std::move(static_cast<beast::tcp_stream&>(stream)));
+                StreamType & streamref = std::get<StreamType>(it->second);
+                SSL_CTX_set_ex_data(SSL_get_SSL_CTX(streamref.native_handle()), 1, &socket(streamref));
             }
         }
     }
 
+    URL url;
     std::string key;
-    StreamType stream;
+    std::optional<StreamType> stream;
     http::request<http::string_body> req;
     beast::flat_buffer buffer;
     bool check_res_parser;
     http::response_parser<http::basic_dynamic_body<beast::flat_buffer>> res_parser;
 private:
-    StreamType connect(URL const& url)
+    void connect()
     {
         net::io_context& ioc = BackendState::instance().ioc;
         {
@@ -192,70 +259,97 @@ private:
             std::lock_guard<std::mutex> lock(BackendState::instance().mtx);
             auto it = BackendState::instance().connection_cache.find(key);
             if (it != BackendState::instance().connection_cache.end()) {
-                if constexpr (std::is_same_v<StreamType, beast::ssl_stream<beast::tcp_stream>>) {
-                    if (std::holds_alternative<beast::ssl_stream<beast::tcp_stream>>(it->second)) {
-                        StreamType stream = std::move(std::get<beast::ssl_stream<beast::tcp_stream>>(it->second));
-                        BackendState::instance().connection_cache.erase(it);
-                        if (stream.next_layer().socket().is_open()) { return stream; }
+                if (std::holds_alternative<StreamType>(it->second)) {
+                    stream.emplace(std::move(std::get<StreamType>(it->second)));
+                    if constexpr (std::is_same_v<StreamType, beast::ssl_stream<beast::tcp_stream>>) { 
+                        SSL_CTX_set_ex_data(SSL_get_SSL_CTX(stream->native_handle()), 1, &socket(*stream));
                     }
-                } else if constexpr (std::is_same_v<StreamType, beast::tcp_stream>) {
-                    if (std::holds_alternative<beast::tcp_stream>(it->second)) {
-                        StreamType stream = std::move(std::get<beast::tcp_stream>(it->second));
-                        BackendState::instance().connection_cache.erase(it);
-                        if (stream.socket().is_open()) { return stream; }
-                    }
+                    BackendState::instance().connection_cache.erase(it);
+                    if (connected()) { return; }
                 }
             }
         }
-        auto const results = net::ip::tcp::resolver(ioc).resolve(url.host, url.port);
+        auto const results = tcp::resolver(ioc).resolve(url.host, url.port);
         if constexpr (std::is_same_v<StreamType, beast::ssl_stream<beast::tcp_stream>>) { 
             ssl::context ctx{ssl::context::tlsv12_client};
             ctx.set_default_verify_paths();
-            StreamType stream{ioc, ctx};
-            if (!SSL_set_tlsext_host_name(stream.native_handle(), url.host.c_str())) {
+            stream.emplace(ioc, ctx);
+            if (!SSL_set_tlsext_host_name(stream->native_handle(), url.host.c_str())) {
                 beast::error_code ec{static_cast<int>(::ERR_get_error()), net::error::get_ssl_category()};
                 throw beast::system_error{ec};
             }
-            //SSL_CTX_set_keylog_callback(ctx.native_handle(), ssl_key_log_callback);
-            net::connect(stream.next_layer().socket(), results.begin(), results.end());
-            stream.handshake(ssl::stream_base::client);
-            return stream;
+            SSL_CTX_set_ex_data(ctx.native_handle(), 1, &socket(*stream));
+            SSL_CTX_set_info_callback(ctx.native_handle(), BackendState::tls_info_callback);
+            //*/SSL_CTX_set_keylog_callback(ctx.native_handle(), ssl_key_log_callback);//*/
+            net::connect(socket(*stream), results.begin(), results.end());
+            socket(*stream).set_option(net::socket_base::keep_alive(true));
+            stream->handshake(ssl::stream_base::client);
         } else { 
-            StreamType stream{ioc}; 
-            net::connect(stream.socket(), results.begin(), results.end());
-            return stream;
+            stream.emplace(ioc);
+            net::connect(socket(*stream), results.begin(), results.end());
+            socket(*stream).set_option(net::socket_base::keep_alive(true));
+        }
+    }
+
+    bool connected() {
+        auto & socket = this->socket(*stream);
+        if (!socket.is_open()) {
+            return false;
+        }
+        int sockfd = socket.native_handle();
+        if (sockfd == -1) {
+            return false;
+        }
+        int error = 0;
+        socklen_t len = sizeof(error);
+        int r = getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, &len);
+        if (r != 0 || error != 0) {
+            return false;
+        }
+        struct tcp_info tcp_info;
+        len = sizeof(tcp_info);
+        r = getsockopt(sockfd, SOL_TCP, TCP_INFO, &tcp_info, &len);
+        if (r == 0 && tcp_info.tcpi_state == TCP_CLOSE_WAIT) {
+            return false;
+        }
+        return true;
+    }
+
+    static auto & socket(StreamType& stream) {
+        if constexpr (std::is_same_v<StreamType, beast::ssl_stream<beast::tcp_stream>>) {
+            return stream.next_layer().socket();
+        } else if constexpr (std::is_same_v<StreamType, beast::tcp_stream>) {
+            return stream.socket();
         }
     }
 };
 
-std::string HTTP::request_string(std::string_view method, std::string_view url_str, std::string_view body, std::span<const std::pair<std::string_view, std::string_view>> headers) {
+std::string HTTP::request_string(std::string_view method, std::string_view url_str, std::string_view body, std::span<Header const> headers) {
     URL url{url_str};
     std::string response;
     std::string key;
     if (url.tls) {
         LoanedConnection<beast::ssl_stream<beast::tcp_stream>> loan(url);
-        loan.request(method, url, body, headers);
-        return loan.http_string();
+        loan.request(method, body, headers);
+        return loan.http_string(method, body, headers);
     } else {
         LoanedConnection<beast::tcp_stream> loan(url);
-        loan.request(method, url, body, headers);
-        return loan.http_string();
+        loan.request(method, body, headers);
+        return loan.http_string(method, body, headers);
     }
 }
 
-zinc::generator<std::string_view> HTTP::request_lines(std::string_view method, std::string_view url_str, std::string_view body, std::span<const std::pair<std::string_view, std::string_view>> headers) {
+zinc::generator<std::string_view> HTTP::request_lines(std::string_view method, std::string_view url_str, std::string_view body, std::span<Header const> headers) {
     URL url{url_str};
     std::string key;
     http::request<http::string_body> req;
 
     if (url.tls) {
         LoanedConnection<beast::ssl_stream<beast::tcp_stream>> loan(url);
-        loan.request(method, url, body, headers);
-        co_yield zinc::ranges::elements_of(loan.http_lines());
+        co_yield zinc::ranges::elements_of(loan.http_lines(method, body, headers));
     } else {
         LoanedConnection<beast::tcp_stream> loan(url);
-        loan.request(method, url, body, headers);
-        co_yield zinc::ranges::elements_of(loan.http_lines());
+        co_yield zinc::ranges::elements_of(loan.http_lines(method, body, headers));
     }
     co_return;
 }
