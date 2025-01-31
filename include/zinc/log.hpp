@@ -9,7 +9,7 @@ namespace zinc {
 
 class Log {
 public:
-    static void log(std::span<StringViewPair> fields);
+    static void log(std::span<StringViewPair const> fields);
 };
 
 } // namespace zinc

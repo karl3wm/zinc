@@ -4,16 +4,19 @@
 #include <iostream>
 #include <vector>
 
+using namespace std;
+using namespace zinc;
+
 int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
     // Initialize the OpenAI with URL, model, and API key.
     // These values should be replaced
-    std::string_view url = "https://api.sambanova.ai";
-    std::string_view model = "Meta-Llama-3.1-405B-Instruct";
-    std::string_view key = "d8957211-24e6-426d-90cc-b267ce681e4f";
-    zinc::OpenAI client(url, model, key);
+    string_view url = "https://api.sambanova.ai";
+    string_view model = "Meta-Llama-3.1-405B-Instruct";
+    string_view key = "d8957211-24e6-426d-90cc-b267ce681e4f";
+    OpenAI client(url, model, key);
 
-    std::vector<zinc::OpenAI::RoleContentPair> messages;
-    std::string msg;
+    vector<OpenAI::RoleContentPair> messages;
+    string msg;
 
     for (int i = 1; i < argc; ++ i) {
         if (i > 1) msg += " ";
@@ -21,44 +24,46 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
     }
 
     while ("end of input not reached") {
-        std::cerr << std::endl << "user: " << std::flush;
+        cerr << endl << "user: " << flush;
         if (msg.empty()) {
-            std::getline(std::cin, msg);
-            std::streamsize extra;
-            if (!std::cin) {
+            getline(cin, msg);
+            streamsize extra;
+            if (!cin) {
                 break;
-            } else while ((extra = std::cin.rdbuf()->in_avail()) > 1) {
+            } else while ((extra = cin.rdbuf()->in_avail()) > 1) {
                 size_t msg_size = msg.size();
                 msg.resize(msg_size + extra);
-                std::cin.read(&msg[msg_size], extra);
+                cin.read(&msg[msg_size], extra);
             }
             if (msg.back() == '\n') {
                 msg.resize(msg.size() - 1);
             }
         } else {
-            std::cerr << msg << std::endl;
+            cerr << msg << endl;
         }
 
-        zinc::Log::log({
+        Log::log(zinc::span<StringViewPair>({
             {"role", "user"},
             {"content", msg},
-        });
+        }));
 
-        messages.emplace_back("user", std::move(msg));
+        messages.emplace_back("user", move(msg));
+        // it might be nice to terminate the request if more data is found on stdin, append the data, and retry
+        // or otherwise provide for the user pasting some data then commenting on it or hitting enter a second time or whatnot
 
-        std::cerr << std::endl << "assistant: " << std::flush;
+        cerr << endl << "assistant: " << flush;
         for (auto&& part : client.chat(messages)) {
             msg += part;
-            std::cout << part << std::flush;
+            cout << part << flush;
         }
-        std::cout << std::endl;
+        cout << endl;
 
-        zinc::Log::log({
+        Log::log(zinc::span<StringViewPair>({
             {"role", "assistant"},
             {"content", msg},
-        });
+        }));
 
-        messages.emplace_back("assistant", std::move(msg));
+        messages.emplace_back("assistant", move(msg));
     }
 
     return 0;
