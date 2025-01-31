@@ -57,8 +57,16 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
         std::cerr << std::endl << "user: " << std::flush;
         if (msg.empty()) {
             std::getline(std::cin, msg);
+            std::streamsize extra;
             if (!std::cin) {
                 break;
+            } else while ((extra = std::cin.rdbuf()->in_avail()) > 1) {
+                size_t msg_size = msg.size();
+                msg.resize(msg_size + extra);
+                std::cin.read(&msg[msg_size], extra);
+            }
+            if (msg.back() == '\n') {
+                msg.resize(msg.size() - 1);
             }
         } else {
             std::cerr << msg << std::endl;
