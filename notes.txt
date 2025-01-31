@@ -1,3 +1,6 @@
+- The prompt formats that llama models are trained on are at https://github.com/meta-llama/llama-models
+    under models/llama[ver]/prompt_format.md where [ver] is among [2,3,3_1,3_2,3_3,...]
+
 Next I would like to add data storage, such as sqlite3.
 
 The intent is to have a configuration store that can store api endpoints and more.
