@@ -1,4 +1,5 @@
 #include <zinc/openai.hpp>
+#include <zinc/log.hpp>
 
 #include <iostream>
 #include <sstream>
@@ -24,11 +25,23 @@ int main(int argc, char **argv) {
         prompt = ss.str();
     }
 
+    Log::log(zinc::span<StringViewPair>({
+        {"role", "user"},
+        {"content", prompt},
+    }));
+
     std::cout << prompt << std::flush;
 
+    std::string completion;
     for (auto&& part : client.complete(prompt)) {
+        completion += part;
         std::cout << part << std::flush;
     }
+
+    Log::log(zinc::span<StringViewPair>({
+        {"role", "assistant"},
+        {"content", completion},
+    }));
 
     return 0;
 }
