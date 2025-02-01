@@ -88,17 +88,13 @@ BOOST_AUTO_TEST_CASE(path_user_subpaths)
     // Get the user configuration path with subpaths
     std::string_view path = zinc::Configuration::path_user(zinc::span<std::string_view>({"subdir", "subsubdir"}), true);
 
-    // Check that the path is correct
-    /*fs::path expected_path = fs::path(getenv("XDG_CONFIG_HOME"));
-    if (expected_path.empty()) {
-        expected_path = fs::path(getenv("HOME")) / ".config";
-    }
-    expected_path /= "zinc";
-    */
     expected_path /= "subdir";
     expected_path /= "subsubdir";
     expected_path /= "";
     BOOST_CHECK_EQUAL(path, expected_path.native());
+
+    // Clean up
+    fs::remove_all(expected_path.parent_path().parent_path());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
