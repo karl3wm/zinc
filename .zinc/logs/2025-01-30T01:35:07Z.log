@@ -1,0 +1,1 @@
+{"role":"user","content":"ok i enabled keepalives and sent a long keepalive header. mayber my connections will be more reusable now. do you know in boost::beast how to check if the server sent Connection: close, to not reuse the connection?","ts":1738200939.024}

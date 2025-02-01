@@ -1,0 +1,76 @@
+<|begin_of_text|><|start_header_id|>user<|end_header_id|>
+
+This approach to value formatting was suggested by an AI but makes the commented compile error near the bottom of ../src/log.cpp. What are your thoughts?
+
+**../src/log.cpp**
+```
+#include <zinc/log.hpp>
+#include <boost/json.hpp>
+
+#include <chrono>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+
+namespace zinc {
+
+static std::ofstream & logf()
+{
+    static struct LogStream : public std::ofstream
+    {
+    public:
+        LogStream()
+        {
+            std::stringstream logfn_ss;
+            auto now = std::chrono::system_clock::now();
+            std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
+            std::tm now_tm = *std::localtime(&now_time_t);
+            logfn_ss << std::put_time(&now_tm, "%FT%TZ.log");
+            open(logfn_ss.str());
+            *this << std::fixed << std::setprecision(3);
+        }
+    } logf;
+    return logf;
+}
+
+static struct EnsureLogfileCreated
+{
+    EnsureLogfileCreated()
+    { logf(); }
+} ensure_logfile_created;
+
+class json_ts {
+public:
+    json_ts()
+    : ms{
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count()
+    }
+    { }
+
+    friend std::ostream& operator<<(std::ostream& os, const json_ts& ts) {
+        os << (ts.ms / 1000) << '.' << std::setw(3) << std::setfill('0') << (ts.ms % 1000);
+        return os;
+    }
+
+private:
+    std::chrono::milliseconds ms;
+};
+
+void Log::log(std::span<StringViewPair const> fields)
+{
+    boost::json::object obj;
+
+    obj["ts"] = json_ts(); // error: no match for ‘operator=’ (operand types are ‘boost::json::value’ and ‘zinc::json_ts’)
+
+    for (auto&& [key, value] : fields) {
+        obj[key] = value;
+    }
+
+    logf() << obj << std::endl;
+}
+
+} // namespace zinc
+```<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+

@@ -1,0 +1,223 @@
+<|begin_of_text|><|start_header_id|>user<|end_header_id|>
+
+Can you add logging to tools/complete.cpp based on tools/chat.cpp?
+
+**tools/chat.cpp**
+```
+#include <zinc/openai.hpp>
+#include <zinc/log.hpp>
+
+#include <iostream>
+#include <vector>
+
+using namespace std;
+using namespace zinc;
+
+int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
+    // Initialize the OpenAI with URL, model, and API key.
+    // These values should be replaced
+    string_view url = "https://api.sambanova.ai";
+    string_view model = "Meta-Llama-3.1-405B-Instruct";
+    string_view key = "d8957211-24e6-426d-90cc-b267ce681e4f";
+    OpenAI client(url, model, key);
+
+    vector<OpenAI::RoleContentPair> messages;
+    string msg;
+
+    for (int i = 1; i < argc; ++ i) {
+        if (i > 1) msg += " ";
+        msg += argv[i];
+    }
+
+    while ("end of input not reached") {
+        cerr << endl << "user: " << flush;
+        if (msg.empty()) {
+            getline(cin, msg);
+            streamsize extra;
+            if (!cin) {
+                break;
+            } else while ((extra = cin.rdbuf()->in_avail()) > 1) {
+                size_t msg_size = msg.size();
+                msg.resize(msg_size + extra);
+                cin.read(&msg[msg_size], extra);
+            }
+            if (msg.back() == '\n') {
+                msg.resize(msg.size() - 1);
+            }
+        } else {
+            cerr << msg << endl;
+        }
+
+        Log::log(zinc::span<StringViewPair>({
+            {"role", "user"},
+            {"content", msg},
+        }));
+
+        messages.emplace_back("user", move(msg));
+        // it might be nice to terminate the request if more data is found on stdin, append the data, and retry
+        // or otherwise provide for the user pasting some data then commenting on it or hitting enter a second time or whatnot
+
+        cerr << endl << "assistant: " << flush;
+        for (auto&& part : client.chat(messages)) {
+            msg += part;
+            cout << part << flush;
+        }
+        cout << endl;
+
+        Log::log(zinc::span<StringViewPair>({
+            {"role", "assistant"},
+            {"content", msg},
+        }));
+
+        messages.emplace_back("assistant", move(msg));
+    }
+
+    return 0;
+}
+```
+
+**tools/complete.cpp**
+```
+#include <zinc/openai.hpp>
+
+#include <iostream>
+#include <sstream>
+
+int main(int argc, char **argv) {
+    // Initialize the OpenAI with URL, model, and API key.
+    // These values should be replaced
+    std::string_view url = "https://api.sambanova.ai";
+    std::string_view model = "Meta-Llama-3.1-405B-Instruct";
+    std::string_view key = "d8957211-24e6-426d-90cc-b267ce681e4f";
+    zinc::OpenAI client(url, model, key);
+
+    std::string prompt = "";
+    for (int i = 1; i < argc; ++ i) {
+        if (i > 1) prompt += " ";
+        prompt += argv[i];
+    }
+
+    if (prompt.empty()) {
+        std::cerr << "No arguments provided. Consuming stdin." << std::endl;
+        std::stringstream ss;
+        ss << std::cin.rdbuf();
+        prompt = ss.str();
+    }
+
+    std::cout << prompt << std::flush;
+
+    for (auto&& part : client.complete(prompt)) {
+        std::cout << part << std::flush;
+    }
+
+    return 0;
+}
+```
+
+**include/zinc/log.hpp**
+```
+#pragma once
+
+#include <span>
+#include <string_view>
+
+#include <zinc/common.hpp>
+
+namespace zinc {
+
+class Log {
+public:
+    static void log(std::span<StringViewPair const> fields);
+};
+
+} // namespace zinc
+```
+
+**include/zinc/common.hpp**
+```
+#pragma once
+
+// zinc::generator is based on c++23 std::generator,
+// with the change that initial_suspend is never_suspend.
+// Because of this change, passed temporaries stay in scope.
+#include <zinc/__generator.hpp>
+
+#include <initializer_list>
+#include <span>
+#include <string>
+#include <string_view>
+
+namespace zinc {
+
+using StringViewPair = std::pair<std::string_view, std::string_view>;
+using StringPair = std::pair<std::string, std::string>;
+
+// Helper function to create a literal span
+template <typename T>
+std::span<T const> span(std::initializer_list<T> const & contiguous)
+{
+    return std::span((T const*)contiguous.begin(), contiguous.size());
+}
+
+// Helper functions to replace substrings
+std::string replaced(
+    std::string_view haystack,
+    std::span<StringViewPair const> replacements
+);
+
+}
+```<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+Here is the modified `tools/complete.cpp` with logging added based on `tools/chat.cpp`:
+
+```cpp
+#include <zinc/openai.hpp>
+#include <zinc/log.hpp>
+
+#include <iostream>
+#include <sstream>
+
+int main(int argc, char **argv) {
+    // Initialize the OpenAI with URL, model, and API key.
+    // These values should be replaced
+    std::string_view url = "https://api.sambanova.ai";
+    std::string_view model = "Meta-Llama-3.1-405B-Instruct";
+    std::string_view key = "d8957211-24e6-426d-90cc-b267ce681e4f";
+    zinc::OpenAI client(url, model, key);
+
+    std::string prompt = "";
+    for (int i = 1; i < argc; ++ i) {
+        if (i > 1) prompt += " ";
+        prompt += argv[i];
+    }
+
+    if (prompt.empty()) {
+        std::cerr << "No arguments provided. Consuming stdin." << std::endl;
+        std::stringstream ss;
+        ss << std::cin.rdbuf();
+        prompt = ss.str();
+    }
+
+    Log::log(zinc::span<StringViewPair>({
+        {"role", "user"},
+        {"content", prompt},
+    }));
+
+    std::cout << prompt << std::flush;
+
+    std::string completion;
+    for (auto&& part : client.complete(prompt)) {
+        completion += part;
+        std::cout << part << std::flush;
+    }
+
+    Log::log(zinc::span<StringViewPair>({
+        {"role", "assistant"},
+        {"content", completion},
+    }));
+
+    return 0;
+}
+```
+
+I added two `Log::log` calls, one before sending the prompt to the OpenAI client, and one after receiving the completion from the client. The logged fields include the role ("user" or "assistant") and the content (the prompt or the completion).
