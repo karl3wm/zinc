@@ -216,7 +216,7 @@ struct LoanedConnection
             if (!res_parser.get().keep_alive()) {
                 return;
             }
-            while (buffer.size()) {
+            while (!res_parser.is_done() && buffer.size()) {
                 http::read_some(*stream, buffer, res_parser);
             }
             if (!res_parser.is_done()) {
