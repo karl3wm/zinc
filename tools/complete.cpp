@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
         {"prompt", prompt}
     }));
 
-    cout << prompt << flush;
+    cerr << prompt << flush;
 
     string completion;
     for (auto&& part : client.complete(prompt)) {
