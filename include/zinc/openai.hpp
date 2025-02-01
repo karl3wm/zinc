@@ -13,15 +13,12 @@ namespace zinc {
 class OpenAI {
 public:
     using RoleContentPair = StringPair;
+
     using JSONValue = std::variant<std::string_view, double, long, bool, std::nullptr_t>;
     using KeyJSONPair = std::pair<std::string_view, JSONValue>;
 
     struct StreamPart : public std::string_view {
-
         std::span<KeyJSONPair> data; // Raw data returned by the server
-
-        StreamPart(std::string_view text, std::span<KeyJSONPair> data)
-        : std::string_view(text), data(data) { }
     };
 
     /**

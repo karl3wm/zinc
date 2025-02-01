@@ -99,7 +99,7 @@ static zinc::generator<std::span<OpenAI::StreamPart>> process_response_lines(zin
                     //jsonvalues[key_idx].first = key;
                     //jsonvalues[key_idx].second = val;
                 }
-                streamparts.emplace_back(text, jsonvalues);
+                streamparts.emplace_back(text).data = jsonvalues;
             }
 
             co_yield streamparts;
