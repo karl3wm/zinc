@@ -19,12 +19,12 @@ public:
     /*
      * Get a per-project configuration path.
      */
-    static std::string_view path_local(std::span<std::string_view> subpaths = {}, bool is_dir = false);
+    static std::string_view path_local(std::span<std::string_view const> subpaths = {}, bool is_dir = false);
 
     /*
      * Get a per-user configuration path.
      */
-    static std::string_view path_user(std::span<std::string_view> subpaths = {}, bool is_dir = false);
+    static std::string_view path_user(std::span<std::string_view const> subpaths = {}, bool is_dir = false);
 };
 
 }

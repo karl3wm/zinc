@@ -29,7 +29,7 @@ fs::path const & config_dir_user()
     return config_dir_user.path;
 };
 
-std::string_view path_helper(fs::path& path, std::span<std::string_view> subpaths, bool is_dir) {
+std::string_view path_helper(fs::path& path, std::span<std::string_view const> subpaths, bool is_dir) {
     for (const auto& subpath : subpaths) {
         path /= subpath;
     }
@@ -54,7 +54,7 @@ bool Configuration::init() {
     return false;
 }
 
-std::string_view Configuration::path_local(std::span<std::string_view> subpaths, bool is_dir) {
+std::string_view Configuration::path_local(std::span<std::string_view const> subpaths, bool is_dir) {
     static fs::path config_dir_local;
 
     {
@@ -88,7 +88,7 @@ std::string_view Configuration::path_local(std::span<std::string_view> subpaths,
     return path_helper(path, subpaths, is_dir);
 }
 
-std::string_view Configuration::path_user(std::span<std::string_view> subpaths, bool is_dir) {
+std::string_view Configuration::path_user(std::span<std::string_view const> subpaths, bool is_dir) {
     static thread_local fs::path path;
     path = config_dir_user();
     return path_helper(path, subpaths, is_dir);
