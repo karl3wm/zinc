@@ -9,18 +9,28 @@
 
 namespace zinc {
 
+static std::tm & launch_time()
+{
+    static struct LaunchTime : public std::tm
+    {
+        LaunchTime()
+        {
+            auto now = std::chrono::system_clock::now();
+            std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
+            *(std::tm*)this = *std::localtime(&now_time_t);
+        }
+    } launch_tm;
+    return launch_tm;
+}
+
 static std::ofstream & logf()
 {
     static struct LogStream : public std::ofstream
     {
-    public:
         LogStream()
         {
             std::stringstream logfn_ss;
-            auto now = std::chrono::system_clock::now();
-            std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
-            std::tm now_tm = *std::localtime(&now_time_t);
-            logfn_ss << std::put_time(&now_tm, "%FT%TZ.log");
+            logfn_ss << std::put_time(&launch_time(), "%FT%TZ.log");
             open(Configuration::path_local(zinc::span<std::string_view>({
                 "logs",
                 logfn_ss.str()
@@ -46,10 +56,10 @@ void Log::log(std::span<StringViewPair const> fields)
     logf() << obj << std::endl;
 }
 
-static struct EnsureLogfileCreated
+static struct EnsureLaunchTimeCreated
 {
-    EnsureLogfileCreated()
-    { logf(); }
-} ensure_logfile_created;
+    EnsureLaunchTimeCreated()
+    { launch_time(); }
+} ensure_launchtime_created;
 
 } // namespace zinc
