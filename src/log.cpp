@@ -1,4 +1,5 @@
 #include <zinc/log.hpp>
+#include <zinc/configuration.hpp>
 #include <boost/json.hpp>
 
 #include <chrono>
@@ -20,7 +21,10 @@ static std::ofstream & logf()
             std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
             std::tm now_tm = *std::localtime(&now_time_t);
             logfn_ss << std::put_time(&now_tm, "%FT%TZ.log");
-            open(logfn_ss.str());
+            open(Configuration::path_local(zinc::span<std::string_view>({
+                "logs",
+                logfn_ss.str()
+            })).begin());
         }
     } logf;
     return logf;
