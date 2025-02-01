@@ -16,11 +16,23 @@ fs::path const & config_dir_user()
     {
         ConfigDirUser()
         {
-            path = fs::path(getenv("XDG_CONFIG_HOME"));
-            if (path.empty()) {
-                path = fs::path(getenv("HOME")) / ".config";
+            char const* xdg_config_home = getenv("XDG_CONFIG_HOME");
+            if (xdg_config_home != nullptr) {
+                path = fs::path(xdg_config_home);
             }
-            path /= "zinc";
+            if (path.empty()) {
+                char const* home = getenv("HOME");
+                if (home != nullptr) {
+                    path = fs::path(home) / ".config";
+                }
+            }
+            if (!path.empty()) {
+                path /= "zinc";
+            } else {
+                // Handle the case where neither XDG_CONFIG_HOME nor HOME is set.
+                // You could throw an exception or set a default path.
+                throw std::runtime_error("Neither XDG_CONFIG_HOME nor HOME is set.");
+            }
         }
 
         fs::path path;
@@ -64,9 +76,9 @@ std::string_view Configuration::path_local(std::span<std::string_view const> sub
         if (config_dir_local.empty()) {
             fs::path zinc_dir;
             for (
-                fs::path path = fs::current_path();
-                !path.empty();
-                path = path.parent_path()
+                fs::path path = fs::current_path(), parent_path = path.parent_path();
+                !path.empty() && path != parent_path;
+                path = parent_path, parent_path = path.parent_path()
             ) {
                 zinc_dir = path / ".zinc";
                 if (zinc_dir == config_dir_user()) {
