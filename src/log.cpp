@@ -23,7 +23,7 @@ static std::tm & launch_time()
     return launch_tm;
 }
 
-static std::ofstream & logf()
+void Log::log(std::span<StringViewPair const> fields)
 {
     static struct LogStream : public std::ofstream
     {
@@ -37,11 +37,6 @@ static std::ofstream & logf()
             })).begin());
         }
     } logf;
-    return logf;
-}
-
-void Log::log(std::span<StringViewPair const> fields)
-{
     boost::json::object obj;
 
     auto now = std::chrono::system_clock::now();
@@ -53,7 +48,7 @@ void Log::log(std::span<StringViewPair const> fields)
 
     obj["ts"] = now_ms / 1000.0;
 
-    logf() << obj << std::endl;
+    logf << obj << std::endl;
 }
 
 static struct EnsureLaunchTimeCreated
