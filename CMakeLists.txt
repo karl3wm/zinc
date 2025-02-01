@@ -44,12 +44,12 @@ add_library(zinc SHARED ${LIB_SOURCES})
 target_include_directories(zinc PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(zinc PRIVATE ${Boost_URL_LIBRARY} ${Boost_JSON_LIBRARY} ${OPENSSL_LIBRARIES})
 
-# Add tool binaries
-file(GLOB TOOL_SOURCES "tools/*.cpp")
-foreach(TOOL_SOURCE IN LISTS TOOL_SOURCES)
-    get_filename_component(TOOL_NAME ${TOOL_SOURCE} NAME_WE)
-    add_executable(${TOOL_NAME} ${TOOL_SOURCE})
-    target_link_libraries(${TOOL_NAME} PRIVATE zinc)
+# Add cli binaries
+file(GLOB CLI_SOURCES "cli/*.cpp")
+foreach(CLI_SOURCE IN LISTS CLI_SOURCES)
+    get_filename_component(CLI_NAME ${CLI_SOURCE} NAME_WE)
+    add_executable(${CLI_NAME} ${CLI_SOURCE})
+    target_link_libraries(${CLI_NAME} PRIVATE zinc)
 endforeach()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -pedantic")
