@@ -75,7 +75,7 @@ BOOST_AUTO_TEST_CASE(path_local_subpaths)
     std::string_view path = zinc::Configuration::path_local(zinc::span<std::string_view>({"subdir", "subsubdir"}), true);
 
     // Check that the path is correct
-    BOOST_CHECK_EQUAL(path, (temp_dir / ".zinc" / "subdir" / "subsubdir").native());
+    BOOST_CHECK_EQUAL(path, (temp_dir / ".zinc" / "subdir" / "subsubdir" / "").native());
 
     // Clean up
     fs::remove_all(temp_dir);
@@ -97,6 +97,7 @@ BOOST_AUTO_TEST_CASE(path_user_subpaths)
     */
     expected_path /= "subdir";
     expected_path /= "subsubdir";
+    expected_path /= "";
     BOOST_CHECK_EQUAL(path, expected_path.native());
 }
 

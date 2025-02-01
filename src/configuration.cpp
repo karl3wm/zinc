@@ -47,6 +47,7 @@ std::string_view path_helper(fs::path& path, std::span<std::string_view const> s
     }
     if (is_dir) {
         fs::create_directories(path);
+        path /= "";
     } else {
         fs::create_directories(path.parent_path());
     }
