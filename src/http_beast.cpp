@@ -330,11 +330,9 @@ std::string HTTP::request_string(std::string_view method, std::string_view url_s
     std::string key;
     if (url.tls) {
         LoanedConnection<beast::ssl_stream<beast::tcp_stream>> loan(url);
-        loan.request(method, body, headers);
         return loan.http_string(method, body, headers);
     } else {
         LoanedConnection<beast::tcp_stream> loan(url);
-        loan.request(method, body, headers);
         return loan.http_string(method, body, headers);
     }
 }
