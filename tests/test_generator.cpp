@@ -3,6 +3,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <unordered_set>
+#include <vector>
 
 using namespace zinc;
 
@@ -17,11 +18,11 @@ struct IntP
     { leaked_ids.insert(id); }
 
     IntP(IntP const & other) noexcept
-    : storage(nullptr), id(~0)
+    : storage(nullptr), id(~0u)
     { *this = other; }
 
     IntP(IntP && other) noexcept
-    : storage(nullptr), id(~0)
+    : storage(nullptr), id(~0u)
     { *this = std::move(other); }
 
     ~IntP() noexcept
@@ -64,7 +65,7 @@ struct IntP
     void clear_() noexcept
     {
         storage = nullptr;
-        id = ~0;
+        id = ~0u;
     }
 
     int* storage;
@@ -97,29 +98,31 @@ generator<IntP> empty_sequence()
     co_return;
 }
 
-generator<IntP> elements_of(generator<IntP>(gen)())
+generator<IntP> elements_of_(generator<IntP>(gen)())
 {
     co_yield ranges::elements_of(gen());
 }
 
 generator<IntP> elements_of_elements_of(generator<IntP>(gen1)(), generator<IntP>(gen2)(), int i1, int i2)
 {
-    co_yield ranges::elements_of(gen1());
+    co_yield ranges::elements_of(elements_of_(gen1));
     co_yield i1;
-    co_yield ranges::elements_of(gen2());
+    co_yield ranges::elements_of(elements_of_(gen2));
     co_yield i2;
 }
 
 int main()
 {
-    int i;
+    std::vector<int> expected, actual;
 
-    i = 0;
+    // Test normal iteration
+    expected = {1, 2, 3};
+    actual.clear();
     for (int i_ : iterates_normally()) {
-        i += i_;
+        actual.push_back(i_);
     }
-    if (i != 6) {
-        throw std::logic_error("normal iteration test did not iterate expected value");
+    if (actual != expected) {
+        throw std::logic_error("normal iteration test did not iterate expected values");
     }
     std::cerr << "normal iteration test passed" << std::endl;
 
@@ -128,38 +131,44 @@ int main()
     }
     std::cerr << "yielded value leak test passed" << std::endl;
 
-    i = 0;
+    // Test interrupted iteration
+    expected = {1};
+    actual.clear();
     for (int i_ : iterates_normally()) {
-        i += i_;
+        actual.push_back(i_);
         break;
     }
-    if (i != 1) {
-        throw std::logic_error("interrupted iteration test did not iterate expected value");
+    if (actual != expected) {
+        throw std::logic_error("interrupted iteration test did not iterate expected values");
     }
     std::cerr << "interrupted iteration test passed" << std::endl;
 
+    // Test iteration with exception
+    expected = {5};
+    actual.clear();
     try {
-        i = 0;
         for (int i_ : throws_later()) {
-            i += i_;
+            actual.push_back(i_);
         }
         throw std::logic_error("generator iteration exception never thrown");
     } catch(std::runtime_error&) {
-        if (i != 5) {
-            throw std::logic_error("generator iteration exception test did not iterate expected value");
+        if (actual != expected) {
+            throw std::logic_error("generator iteration exception test did not iterate expected values");
         }
         std::cerr << "generator iteration exception test passed" << std::endl;
     }
 
+    // Test initial exception
+    expected = {};
+    actual.clear();
     try {
-        i = 0;
         for (int i_ : throws_initially()) {
-            i += i_;
+            actual.push_back(i_);
         }
         throw std::logic_error("generator initial exception never thrown");
     } catch(std::runtime_error&) {
-        if (i != 0) {
-            throw std::logic_error("generator initial exception iterated a value when it should not have");
+        if (actual != expected) {
+            throw std::logic_error("generator initial exception test did not iterate expected values");
         }
         std::cerr << "generator initial exception test passed" << std::endl;
     }
@@ -169,47 +178,55 @@ int main()
     }
     std::cerr << "yielded value leak test passed" << std::endl;
 
-    i = 0;
-    for (int i_ : elements_of(iterates_normally)) {
-        i += i_;
+    // Test elements_of
+    expected = {1, 2, 3};
+    actual.clear();
+    for (int i_ : elements_of_(iterates_normally)) {
+        actual.push_back(i_);
     }
-    if (i != 6) {
-        throw std::logic_error("normal elements_of test did not iterate expected value");
+    if (actual != expected) {
+        throw std::logic_error("elements_of test did not iterate expected values");
     }
-    std::cerr << "normal elements_of test passed" << std::endl;
+    std::cerr << "elements_of test passed" << std::endl;
 
-    i = 0;
-    for (int i_ : elements_of(iterates_normally)) {
-        i += i_;
+    // Test interrupted elements_of
+    expected = {1};
+    actual.clear();
+    for (int i_ : elements_of_(iterates_normally)) {
+        actual.push_back(i_);
         break;
     }
-    if (i != 1) {
-        throw std::logic_error("interrupted elements_of test did not iterate expected value");
+    if (actual != expected) {
+        throw std::logic_error("elements_of test did not iterate expected values");
     }
-    std::cerr << "interrupted elements_of test passed" << std::endl;
+    std::cerr << "elements_of test passed" << std::endl;
 
+    // Test elements_of with exception
+    expected = {5};
+    actual.clear();
     try {
-        i = 0;
-        for (int i_ : elements_of(throws_later)) {
-            i += i_;
+        for (int i_ : elements_of_(throws_later)) {
+            actual.push_back(i_);
         }
         throw std::logic_error("elements_of iteration exception never thrown");
     } catch(std::runtime_error&) {
-        if (i != 5) {
-            throw std::logic_error("elements_of iteration exception test did not iterate expected value");
+        if (actual != expected) {
+            throw std::logic_error("elements_of iteration exception test did not iterate expected values");
         }
         std::cerr << "elements_of iteration exception test passed" << std::endl;
     }
 
+    // Test initial elements_of exception
+    expected = {};
+    actual.clear();
     try {
-        i = 0;
-        for (int i_ : elements_of(throws_initially)) {
-            i += i_;
+        for (int i_ : elements_of_(throws_initially)) {
+            actual.push_back(i_);
         }
         throw std::logic_error("elements_of initial exception never thrown");
     } catch(std::runtime_error&) {
-        if (i != 0) {
-            throw std::logic_error("elements_of initial exception iterated a value when it should not have");
+        if (actual != expected) {
+            throw std::logic_error("elements_of initial exception test did not iterate expected values");
         }
         std::cerr << "elements_of initial exception test passed" << std::endl;
     }
@@ -221,43 +238,47 @@ int main()
     std::cerr << "empty sequence test passed" << std::endl;
 
     // Test elements_of with 0-length sequence
-    for ([[maybe_unused]]int i_ : elements_of(empty_sequence)) {
+    for ([[maybe_unused]]int i_ : elements_of_(empty_sequence)) {
         throw std::logic_error("elements_of empty sequence test iterated a value");
     }
     std::cerr << "elements_of empty sequence test passed" << std::endl;
 
     // Test elements_of_elements_of
-    i = 0;
-    for (int i_ : elements_of_elements_of(empty_sequence, iterates_normally, 10, 20)) {
-        i += i_;
+    expected = {1, 2, 3, 10, 1, 2, 3, 20};
+    actual.clear();
+    for (int i_ : elements_of_elements_of(iterates_normally, iterates_normally, 10, 20)) {
+        actual.push_back(i_);
     }
-    if (i != 0 + 6 + 10 + 20) {
-        throw std::logic_error("elements_of_elements_of test did not iterate expected value");
+    if (actual != expected) {
+        throw std::logic_error("elements_of_elements_of test did not iterate expected values");
     }
     std::cerr << "elements_of_elements_of test passed" << std::endl;
 
     // Test elements_of_elements_of with exception
+    expected = {1, 2, 3, 10, 5};
+    actual.clear();
     try {
-        i = 0;
         for (int i_ : elements_of_elements_of(iterates_normally, throws_later, 10, 20)) {
-            i += i_;
+            actual.push_back(i_);
         }
         throw std::logic_error("elements_of_elements_of iteration exception never thrown");
     } catch(std::runtime_error&) {
-        if (i != 21) {
-            throw std::logic_error("elements_of_elements_of iteration exception test did not iterate expected value");
+        if (actual != expected) {
+            throw std::logic_error("elements_of_elements_of iteration exception test did not iterate expected values");
         }
         std::cerr << "elements_of_elements_of iteration exception test passed" << std::endl;
     }
 
+    // Test elements_of_elements_of with initial exception
+    expected = {1, 2, 3, 10};
+    actual.clear();
     try {
-        i = 0;
         for (int i_ : elements_of_elements_of(iterates_normally, throws_initially, 10, 20)) {
-            i += i_;
+            actual.push_back(i_);
         }
         throw std::logic_error("elements_of_elements_of initial exception never thrown");
     } catch(std::runtime_error&) {
-        if (i != 16) {
+        if (actual != expected) {
             throw std::logic_error("elements_of_elements_of initial exception test did not iterate expected value");
         }
         std::cerr << "elements_of_elements_of initial exception test passed" << std::endl;
