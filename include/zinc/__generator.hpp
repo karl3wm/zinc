@@ -21,6 +21,11 @@
 //              when the runtime will destroy it again during unwinding of
 //              the coroutine construction
 //      - moved __value_.destruct() from __generator_promise_base to generator
+// 2025-02-03 Karl Semich
+//      addressed yield of uninitialized data from elements_of empty range
+//      - __yield_sequence_awaiter: only move value if coro is running
+//      - iterator operator==: end if leaf coro is done
+//      also cleared __presuspend_generator when an explicit allocator is used
 
 #ifndef __STD_GENERATOR_INCLUDED
 #define __STD_GENERATOR_INCLUDED
@@ -484,8 +489,10 @@ struct __generator_promise_base
 
             // Because the nested generator was not initially suspended,
             // it no longer needs to be immediately resumed.
-            // However, it now has a value that needs to be moved up.
-            std::swap(__root.__value_.get(), __nested.__value_.get());
+            // However, it likely has a value that needs to be moved up.
+            if (!__root.__parentOrLeaf_.done()) {
+                std::swap(__root.__value_.get(), __nested.__value_.get());
+            }
             return std::noop_coroutine();
             //// Immediately resume the nested coroutine (nested generator)
             //return __gen_.__get_coro();
@@ -553,10 +560,12 @@ struct __generator_promise<generator<_Ref, _Value, _Alloc>, _ByteAllocator, _Exp
         static_assert (!_ExplicitAllocator,
         "This coroutine has an explicit allocator specified with std::allocator_arg so an allocator needs to be passed "
         "explicitely to std::elements_of");
-        return [](auto && __rng) -> generator<_Ref, _Value, _Alloc> {
+        auto awaiter = [](auto && __rng) -> generator<_Ref, _Value, _Alloc> {
             for(auto && e: __rng)
                 co_yield static_cast<decltype(e)>(e);
         }(std::forward<_Rng>(__x.get()));
+        this->__presuspend_generator_ = nullptr;
+        return awaiter;
     }
 };
 
@@ -667,7 +676,7 @@ public:
         }
 
         friend bool operator==(const iterator &it, sentinel) noexcept {
-            return it.__coro_.done();
+            return it.__coro_.done() || it.__promise_->__parentOrLeaf_.done();
         }
 
         iterator &operator++() {
@@ -786,7 +795,7 @@ public:
         ~iterator() = default;
 
         friend bool operator==(const iterator &it, sentinel) noexcept {
-            return it.__coro_.done();
+            return it.__coro_.done() || it.__promise_->__parentOrLeaf_.done();
         }
 
         iterator& operator++() {

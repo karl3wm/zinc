@@ -92,6 +92,11 @@ generator<IntP> throws_later()
     throw std::runtime_error("later exception");
 }
 
+generator<IntP> empty_sequence()
+{
+    co_return;
+}
+
 generator<IntP> elements_of(generator<IntP>(gen)())
 {
     co_yield ranges::elements_of(gen());
@@ -163,7 +168,7 @@ int main()
     if (i != 6) {
         throw std::logic_error("normal elements_of test did not iterate expected value");
     }
-    std::cerr << "normal elemens_of test passed" << std::endl;
+    std::cerr << "normal elements_of test passed" << std::endl;
 
     i = 0;
     for (int i_ : elements_of(iterates_normally)) {
@@ -201,8 +206,22 @@ int main()
         std::cerr << "elements_of initial exception test passed" << std::endl;
     }
 
+    // Test 0-length sequence
+    for ([[maybe_unused]]int i_ : empty_sequence()) {
+        throw std::logic_error("empty sequence test iterated a value");
+    }
+    std::cerr << "empty sequence test passed" << std::endl;
+
+    // Test elements_of with 0-length sequence
+    for ([[maybe_unused]]int i_ : elements_of(empty_sequence)) {
+        throw std::logic_error("elements_of empty sequence test iterated a value");
+    }
+    std::cerr << "elements_of empty sequence test passed" << std::endl;
+
     if (!IntP::leaked_ids.empty()) {
         throw std::logic_error("yielded values were leaked");
     }
     std::cerr << "yielded value leak test passed" << std::endl;
+
+    return 0;
 }
