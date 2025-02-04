@@ -102,6 +102,14 @@ generator<IntP> elements_of(generator<IntP>(gen)())
     co_yield ranges::elements_of(gen());
 }
 
+generator<IntP> elements_of_elements_of(generator<IntP>(gen1)(), generator<IntP>(gen2)(), int i1, int i2)
+{
+    co_yield ranges::elements_of(gen1());
+    co_yield i1;
+    co_yield ranges::elements_of(gen2());
+    co_yield i2;
+}
+
 int main()
 {
     int i;
@@ -217,6 +225,43 @@ int main()
         throw std::logic_error("elements_of empty sequence test iterated a value");
     }
     std::cerr << "elements_of empty sequence test passed" << std::endl;
+
+    // Test elements_of_elements_of
+    i = 0;
+    for (int i_ : elements_of_elements_of(empty_sequence, iterates_normally, 10, 20)) {
+        i += i_;
+    }
+    if (i != 0 + 6 + 10 + 20) {
+        throw std::logic_error("elements_of_elements_of test did not iterate expected value");
+    }
+    std::cerr << "elements_of_elements_of test passed" << std::endl;
+
+    // Test elements_of_elements_of with exception
+    try {
+        i = 0;
+        for (int i_ : elements_of_elements_of(iterates_normally, throws_later, 10, 20)) {
+            i += i_;
+        }
+        throw std::logic_error("elements_of_elements_of iteration exception never thrown");
+    } catch(std::runtime_error&) {
+        if (i != 21) {
+            throw std::logic_error("elements_of_elements_of iteration exception test did not iterate expected value");
+        }
+        std::cerr << "elements_of_elements_of iteration exception test passed" << std::endl;
+    }
+
+    try {
+        i = 0;
+        for (int i_ : elements_of_elements_of(iterates_normally, throws_initially, 10, 20)) {
+            i += i_;
+        }
+        throw std::logic_error("elements_of_elements_of initial exception never thrown");
+    } catch(std::runtime_error&) {
+        if (i != 16) {
+            throw std::logic_error("elements_of_elements_of initial exception test did not iterate expected value");
+        }
+        std::cerr << "elements_of_elements_of initial exception test passed" << std::endl;
+    }
 
     if (!IntP::leaked_ids.empty()) {
         throw std::logic_error("yielded values were leaked");

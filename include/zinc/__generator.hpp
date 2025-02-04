@@ -23,8 +23,8 @@
 //      - moved __value_.destruct() from __generator_promise_base to generator
 // 2025-02-03 Karl Semich
 //      addressed yield of uninitialized data from elements_of empty range
-//      - __yield_sequence_awaiter: only move value if coro is running
-//      - iterator operator==: end if leaf coro is done
+//      - __yield_sequence_awaiter: await_ready skips suspension if completed
+//      - __yield_sequence_awaiter: await_resume skips rethrow if unsuspended
 //      also cleared __presuspend_generator when an explicit allocator is used
 
 #ifndef __STD_GENERATOR_INCLUDED
@@ -466,7 +466,8 @@ struct __generator_promise_base
         }
 
         bool await_ready() noexcept {
-            return false;
+            // do not suspend if no values were produced
+            return __gen_.__get_coro().done();
         }
 
         // set the parent, root and exceptions pointer and
@@ -489,10 +490,8 @@ struct __generator_promise_base
 
             // Because the nested generator was not initially suspended,
             // it no longer needs to be immediately resumed.
-            // However, it likely has a value that needs to be moved up.
-            if (!__root.__parentOrLeaf_.done()) {
-                std::swap(__root.__value_.get(), __nested.__value_.get());
-            }
+            // However, it now has a value that needs to be moved up.
+            std::swap(__root.__value_.get(), __nested.__value_.get());
             return std::noop_coroutine();
             //// Immediately resume the nested coroutine (nested generator)
             //return __gen_.__get_coro();
@@ -500,7 +499,9 @@ struct __generator_promise_base
 
         void await_resume() {
             __generator_promise_base& __nestedPromise = *__gen_.__get_promise();
-            if (__nestedPromise.__exception_.get()) {
+            // do not fetch the exception if __root_ was not set via await_suspend
+            // this is the same check used int he promise destructor
+            if (__nestedPromise.__root_ != &__nestedPromise && __nestedPromise.__exception_.get()) {
                 std::rethrow_exception(std::move(__nestedPromise.__exception_.get()));
             }
         }
@@ -676,7 +677,7 @@ public:
         }
 
         friend bool operator==(const iterator &it, sentinel) noexcept {
-            return it.__coro_.done() || it.__promise_->__parentOrLeaf_.done();
+            return it.__coro_.done();
         }
 
         iterator &operator++() {
@@ -795,7 +796,7 @@ public:
         ~iterator() = default;
 
         friend bool operator==(const iterator &it, sentinel) noexcept {
-            return it.__coro_.done() || it.__promise_->__parentOrLeaf_.done();
+            return it.__coro_.done();
         }
 
         iterator& operator++() {
