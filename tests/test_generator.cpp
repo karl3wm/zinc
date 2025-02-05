@@ -111,6 +111,15 @@ generator<IntP> elements_of_elements_of(generator<IntP>(gen1)(), generator<IntP>
     co_yield i2;
 }
 
+generator<IntP> elements_of_elements_of_elements_of(generator<IntP>(gen)(), int i)
+{
+    co_yield i;
+    co_yield ranges::elements_of(elements_of_elements_of(gen, gen, i, i));
+    co_yield i;
+    co_yield ranges::elements_of(elements_of_elements_of(gen, gen, i, i));
+    co_yield i;
+}
+
 int main()
 {
     std::vector<int> expected, actual;
@@ -197,9 +206,9 @@ int main()
         break;
     }
     if (actual != expected) {
-        throw std::logic_error("elements_of test did not iterate expected values");
+        throw std::logic_error("interrupted elements_of test did not iterate expected values");
     }
-    std::cerr << "elements_of test passed" << std::endl;
+    std::cerr << "interrupted elements_of test passed" << std::endl;
 
     // Test elements_of with exception
     expected = {5};
@@ -283,6 +292,17 @@ int main()
         }
         std::cerr << "elements_of_elements_of initial exception test passed" << std::endl;
     }
+
+    // Test elements_of_elements_of_elements_of
+    expected = {7, 1, 2, 3, 7, 1, 2, 3, 7, 7, 1, 2, 3, 7, 1, 2, 3, 7, 7};
+    actual.clear();
+    for (int i_ : elements_of_elements_of_elements_of(iterates_normally, 7)) {
+        actual.push_back(i_);
+    }
+    if (actual != expected) {
+        throw std::logic_error("elements_of_elements_of_elements_of test did not iterate expected value");
+    }
+    std::cerr << "elements_of_elements_of_elements_of test passed" << std::endl;
 
     if (!IntP::leaked_ids.empty()) {
         throw std::logic_error("yielded values were leaked");

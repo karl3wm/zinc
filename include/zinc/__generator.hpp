@@ -26,6 +26,18 @@
 //      - __yield_sequence_awaiter: await_ready skips suspension if completed
 //      - __yield_sequence_awaiter: await_resume skips rethrow if unsuspended
 //      also cleared __presuspend_generator when an explicit allocator is used
+// 2025-02-04 Karl Semich
+//      fixed propagation of leaf and root pointers to root and leaf respectively
+//      - __generator_promise_base: made __parentOrLeaf_ a promise
+//      - __final_awaiter: move leaf's root pointer to parent on finish
+//      - __yield_sequence_awaiter: capture leaf before clobber
+//      - __yield_sequence_awaiter: treat __parentOrLeaf as a promise
+//      - __yield_sequence_awaiter: update leaf's root pointer
+//      - resume(): treat __parentOrLeaf as a promise
+// The changes could be reviewed, consolidate, and simplified.
+// There remains significant opportunity for optimization and redesign
+//   given the bubble-up eager behavior over the previous bubble-down
+//   lazy behavior.
 
 #ifndef __STD_GENERATOR_INCLUDED
 #define __STD_GENERATOR_INCLUDED
@@ -364,7 +376,7 @@ struct __generator_promise_base
     friend _Generator;
 
     __generator_promise_base* __root_;
-    std::coroutine_handle<> __parentOrLeaf_;
+    __generator_promise_base* __parentOrLeaf_;
     _Generator* __presuspend_generator_;
     // Note: Using manual_lifetime here to avoid extra calls to exception_ptr
     // constructor/destructor in cases where it is not needed (i.e. where this
@@ -374,9 +386,9 @@ struct __generator_promise_base
     __manual_lifetime<std::exception_ptr> __exception_;
     __manual_lifetime<_Ref> __value_;
 
-    explicit __generator_promise_base(std::coroutine_handle<> thisCoro) noexcept
+    explicit __generator_promise_base(std::coroutine_handle<>/* thisCoro*/) noexcept
         : __root_(this)
-        , __parentOrLeaf_(thisCoro)
+        , __parentOrLeaf_(this)
     {}
 
     ~__generator_promise_base() {
@@ -425,7 +437,8 @@ struct __generator_promise_base
             if (&__root != &__promise) {
                 auto __parent = __promise.__parentOrLeaf_;
                 __root.__parentOrLeaf_ = __parent;
-                return __parent;
+                __parent->__root_ = &__root;
+                return std::coroutine_handle<__generator_promise_base>::from_promise(*__parent);
             }
             return std::noop_coroutine();
         }
@@ -478,19 +491,24 @@ struct __generator_promise_base
             __generator_promise_base& __current = __h.promise();
             __generator_promise_base& __nested = *__gen_.__get_promise();
             __generator_promise_base& __root = *__current.__root_;
+            __generator_promise_base& __leaf = *__nested.__parentOrLeaf_;
 
             __nested.__root_ = __current.__root_;
-            __nested.__parentOrLeaf_ = __h;
+            __leaf.__root_ = __current.__root_;
+            __nested.__parentOrLeaf_ = &__current;
 
             // Lazily construct the __exception_ member here now that we
             // know it will be used as a nested generator. This will be
             // destroyed by the promise destructor.
             __nested.__exception_.construct();
-            __root.__parentOrLeaf_ = __gen_.__get_coro();
+            __root.__parentOrLeaf_ = &__leaf;
 
             // Because the nested generator was not initially suspended,
             // it no longer needs to be immediately resumed.
+            // This means this code could be moved into await_ready,
+            // and suspension avoided.
             // However, it now has a value that needs to be moved up.
+            // This value could be accessed directly from the leaf.
             std::swap(__root.__value_.get(), __nested.__value_.get());
             return std::noop_coroutine();
             //// Immediately resume the nested coroutine (nested generator)
@@ -500,7 +518,7 @@ struct __generator_promise_base
         void await_resume() {
             __generator_promise_base& __nestedPromise = *__gen_.__get_promise();
             // do not fetch the exception if __root_ was not set via await_suspend
-            // this is the same check used int he promise destructor
+            // this is the same check used in the promise destructor
             if (__nestedPromise.__root_ != &__nestedPromise && __nestedPromise.__exception_.get()) {
                 std::rethrow_exception(std::move(__nestedPromise.__exception_.get()));
             }
@@ -527,7 +545,7 @@ struct __generator_promise_base
     }
 
     void resume() {
-        __parentOrLeaf_.resume();
+        std::coroutine_handle<__generator_promise_base>::from_promise(*__parentOrLeaf_).resume();
     }
 
     // Disable use of co_await within this coroutine.
