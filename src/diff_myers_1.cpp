@@ -34,7 +34,7 @@ public:
     : N(data_old.size()), M(data_new.size()), MAX(N+M)
     , matches_(N * M)
     {
-        Vs.resize(V_idx_(MAX,MAX) + 1);
+        Vs.resize(V_idx_(MAX,(ssize_t)MAX) + 1);
         InitialSequence data_lists[2] = {data_old, data_new};
         for (size_t idx = 0; idx < 2; ++ idx) {
             auto & hashes = hashes_[idx];
@@ -127,15 +127,15 @@ public:
             ++ x;
         }
         y = V_x(0,0) = x;
-        for (D = 1; D <= MAX; ++ D) { // number of non-diagonal edges ie edits
+        for (D = 1; D <= (ssize_t)MAX; ++ D) { // number of non-diagonal edges ie edits
             for (k = -D; k <= D; k += 2) { // each reachable diagonal
                 if (k == -D) {
-                    x = V_x(D - 1, k + 1); // add
+                    x = V_x((size_t)D - 1, k + 1); // add
                 } else if (k == D) {
-                    x = V_x(D - 1, k - 1) + 1; // del
+                    x = V_x((size_t)D - 1, k - 1) + 1; // del
                 } else {
-                    x_del = V_x(D - 1, k - 1);
-                    x_add = V_x(D - 1, k + 1);
+                    x_del = V_x((size_t)D - 1, k - 1);
+                    x_add = V_x((size_t)D - 1, k + 1);
                     if (x_add < x_del) {
                         x = x_add;
                     } else {
@@ -153,7 +153,7 @@ public:
                     // snake further along the diagonal
                     ++ x; ++ y;
                 }
-                V_x(D, k) = x;
+                V_x((size_t)D, k) = x;
                 if (x >= N && y >= M) {
                     // shortest edit sequence is D
                     break;
@@ -175,10 +175,10 @@ public:
                 -- y;
                 edits_[--z] = SAME;
             }
-            x_del = V_x(D - 1, k - 1);
-            x_add = V_x(D - 1, k + 1);
+            x_del = V_x((size_t)D - 1, k - 1);
+            x_add = V_x((size_t)D - 1, k + 1);
             // we could just compare x here
-            if (k == -D || k != D && x_add < x_del) {
+            if (k == -D || (k != D && x_add < x_del)) {
                 assert(x_add == x);
                 //x = x_add;
                 -- y;
@@ -193,7 +193,7 @@ public:
             assert(y == kx2y(k, x));
         }
 
-        return {edits_.begin() + z, edits_.end()};
+        return {edits_.begin() + (long int)z, edits_.end()};
     }
 
 private:
@@ -203,8 +203,8 @@ private:
     vector<size_t> hashes_[2];
     vector<bool> matches_;
     decltype(matches_)::reference match(size_t old, size_t new_) {
-        assert(old >= 0 && old < N);
-        assert(new_ >= 0 && new_ < M);
+        assert(old < N);
+        assert(new_ < M);
         return matches_[old + new_ * M];
     }
 
@@ -224,12 +224,14 @@ private:
     size_t & V_x(size_t D, ssize_t k)
     {
         auto idx = V_idx_(D, k);
-        assert(idx >= 0 && idx < Vs.size());
+        assert(idx < Vs.size());
         return Vs[idx];
     }
     static size_t kx2y(ssize_t k, size_t x)
     {
-        return x - k;
+        ssize_t y = (ssize_t)x - k;
+        assert(y >= 0);
+        return (size_t)y;
     }
 
 
@@ -238,9 +240,9 @@ private:
         // the size of each V(D) is D+1 and is indexed by k always-even among [-D,D] 
         // the offset is calculated by the triangular numbers of increasing D
         size_t offset = (D*(D+1)/2);
-        size_t idx = (k+D)/2;
-        assert(idx >= 0 && idx <= D);
-        return offset + idx;
+        ssize_t idx = (k+(ssize_t)D)/2;
+        assert(idx >= 0 && (size_t)idx <= D);
+        return offset + (size_t)idx;
     }
 
     vector<Edit> edits_;

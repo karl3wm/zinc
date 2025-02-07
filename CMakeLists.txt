@@ -1,7 +1,7 @@
 # Minimum CMake version required
 cmake_minimum_required(VERSION 3.18)
 # Project name and version
-project(ZinC VERSION 0.1 LANGUAGES CXX)
+project(ZinC VERSION 0.1 LANGUAGES CXX C)
 # Specify the C++ standard
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,6 +44,15 @@ add_library(zinc SHARED ${LIB_SOURCES})
 target_include_directories(zinc PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(zinc PRIVATE ${Boost_URL_LIBRARY} ${Boost_JSON_LIBRARY} ${OPENSSL_LIBRARIES})
 
+# Create a separate library target for xdiff
+file(GLOB XDIFF_SOURCES "third_party/xdiff/*.c")
+add_library(xdiff STATIC ${XDIFF_SOURCES})
+target_compile_options(xdiff PRIVATE -fPIC)
+target_include_directories(xdiff PUBLIC "third_party")
+
+# Link xdiff to the main library
+target_link_libraries(zinc PRIVATE xdiff)
+
 # Add cli binaries
 file(GLOB CLI_SOURCES "cli/*.cpp")
 foreach(CLI_SOURCE IN LISTS CLI_SOURCES)
@@ -55,7 +64,7 @@ endforeach()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra --pedantic-errors")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wconversion -Wsign-conversion")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -ggdb -fno-omit-frame-pointer -Werror")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-keyword-macro")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-keyword-macro -Wno-comment")
 if(ENABLE_ASAN)
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=undefined,address,leak -fno-common")
 endif()

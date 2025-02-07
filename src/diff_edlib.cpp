@@ -1,7 +1,8 @@
-//#pragma hdrstop "../third_party/edlib/edlib/include"
-//#pragma include_path("../third_party/edlib/edlib/include")
-#include "edlib.h"
-//#include "edlib.cpp"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wconversion"
+#include "../third_party/edlib.cpp"
+#pragma GCC diagnostic pop
 #include <cassert>
 #include <string>
 #include <vector>
@@ -130,6 +131,8 @@ private:
 };
 
 #include <iostream>
+
+namespace {
 //#define assertEquals(desc, a, b) assert((equal(a.begin(),a.end(),b.begin())) && desc)
 void assertEquals(char const*desc, std::vector<Diff>&expected, std::vector<Diff>const&actual)
 {
@@ -142,7 +145,9 @@ std::vector<Diff> diffList(T... diffs)
     return {diffs...};
 }
 
-int main()
+}
+
+void test_diff_edlib()
 {
   EdlibAdapter dmp;
   std::vector<Diff> diffs;

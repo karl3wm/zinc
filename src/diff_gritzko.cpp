@@ -1,4 +1,8 @@
-#include "dmp_diff.hpp"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wconversion"
+#include "../third_party/myers-diff/dmp_diff.hpp"
+#pragma GCC diagnostic pop
 
 
 #define assertEquals(desc, a, b) assert((equal(a.begin(),a.end(),b.begin(), diff_eq)) && desc)

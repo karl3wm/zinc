@@ -1,5 +1,9 @@
 extern "C" {
-#include "../third_party/xdiff/xinclude.h"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wconversion"
+#include <xdiff/xinclude.h>
+#pragma GCC diagnostic pop
 }
 
 #include <cassert>
@@ -28,6 +32,8 @@ unsigned long enum XDFLAGS {
     INDENT_HEURISTIC = (1 << 23)
 };
 
+namespace {
+
 template <typename T>
 mmfile_t xdmmfile(T data)
 {
@@ -55,6 +61,8 @@ void mustbe0_(int r, char const * msg)
     if (r != 0) { throw std::runtime_error(msg); }
 }
 
+}
+
 enum DiffType { EQUAL, INSERT, DELETE };
 struct Diff {
     DiffType type;
@@ -75,7 +83,13 @@ public:
         T data_old,
         T data_new,
         unsigned long xdflags = NEED_MINIMAL | HISTOGRAM_DIFF | INDENT_HEURISTIC
-    ) : xp{ .flags=xdflags, .ignore_regex_nr=0, .anchors_nr=0}
+    ) : xp{
+        .flags = xdflags,
+        .ignore_regex = nullptr,
+        .ignore_regex_nr = 0,
+        .anchors = nullptr,
+        .anchors_nr = 0,
+    }
     {
         mmfile_t o = xdmmfile(data_old), n = xdmmfile(data_new);
         mustbe0(xdl_do_diff(&o, &n, &xp, &xe));
@@ -84,10 +98,10 @@ public:
     {
         size_t l1 = 0, l2 = 0;
     	auto* cp1 = xe.xdf1.rchg,* cp2 = xe.xdf2.rchg;
-    	size_t s1 = xe.xdf1.nrec, s2 = xe.xdf2.nrec;
-    	while (l1 < s1 || l2 < s2) {
-    		auto c1 = (l1 < s1 ? (cp1[l1]?1:0) : 0);
-    		auto c2 = (l2 < s2 ? (cp2[l2]?1:0) : 0);
+    	ssize_t s1 = xe.xdf1.nrec, s2 = xe.xdf2.nrec;
+    	while ((ssize_t)l1 < s1 || (ssize_t)l2 < s2) {
+    		auto c1 = ((ssize_t)l1 < s1 ? (cp1[l1]?1:0) : 0);
+    		auto c2 = ((ssize_t)l2 < s2 ? (cp2[l2]?1:0) : 0);
     		switch ((c1 << 2) | c2) {
     		case (1 << 2) | 1:
     			// remove and add
@@ -126,6 +140,9 @@ private:
     xdfenv_t xe;
 };
 
+#include <iostream>
+namespace {
+
 class XDiffAdapter {
 public:
     XDiffAdapter() {}
@@ -144,7 +161,6 @@ public:
     }
 };
 
-#include <iostream>
 void assertEquals(char const*desc, std::vector<Diff>&expected, std::vector<Diff>const&actual)
 {
     std::cerr << desc << std::endl;
@@ -156,7 +172,9 @@ std::vector<Diff> diffList(T... diffs)
     return {diffs...};
 }
 
-int main()
+}
+
+void test_diff_xdiff()
 {
   XDiffAdapter dmp;
   std::vector<Diff> diffs;
