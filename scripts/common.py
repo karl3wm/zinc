@@ -6,10 +6,12 @@ import subprocess
 
 subprocess_objs = []
 
+SHELL = os.environ.get('SHELL', '/bin/sh')
+
 def arg_to_code_output(arg):
     if arg.startswith('`') and arg.endswith('`'):
         # Run shell command
-        code = f'import subprocess\nsubprocess.run({repr(arg[1:-1])}, shell=True)'
+        code = f'import subprocess\nsubprocess.run({repr(arg[1:-1])}, shell=True, executable={repr(SHELL)})'
     elif arg.startswith('http://') or arg.startswith('https://') or ('.' in arg and not os.path.exists(arg)):
         # Request web URL
         code = f'import requests\nprint(requests.get({repr(arg)}).text)'

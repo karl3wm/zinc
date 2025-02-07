@@ -1,0 +1,18 @@
+[submodule "third_party/mdspan"]
+	path = third_party/mdspan
+	url = https://github.com/kokkos/mdspan
+[submodule "third_party/dtl"]
+	path = third_party/dtl
+	url = https://github.com/cubicdaiya/dtl
+[submodule "third_part/diff-match-patch-cpp-stl"]
+	path = third_party/diff-match-patch-cpp-stl
+	url = https://github.com/leutloff/diff-match-patch-cpp-stl
+[submodule "third_party/duckie-difflib"]
+	path = third_party/duckie-difflib
+	url = https://github.com/duckie/difflib
+[submodule "third_party/myers-diff"]
+	path = third_party/myers-diff
+	url = https://github.com/gritzko/myers-diff
+[submodule "third_party/edlib"]
+	path = third_party/edlib
+	url = https://github.com/Martinsos/edlib
