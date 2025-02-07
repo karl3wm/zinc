@@ -46,7 +46,7 @@ void Log::log(std::span<StringViewPair const> fields)
         obj[key] = value;
     }
 
-    obj["ts"] = now_ms / 1000.0;
+    obj["ts"] = (double)now_ms / 1000.0;
 
     logf << obj << std::endl;
 }

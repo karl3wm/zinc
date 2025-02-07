@@ -9,8 +9,10 @@ subprocess_objs = []
 SHELL = os.environ.get('SHELL', '/bin/sh')
 
 def arg_to_code_output(arg):
+    output_prefix = ''
     if arg.startswith('`') and arg.endswith('`'):
         # Run shell command
+        output_prefix = '$ ' + ''.join(arg[1:-1]) + '\n'
         code = f'import subprocess\nsubprocess.run({repr(arg[1:-1])}, shell=True, executable={repr(SHELL)})'
     elif arg.startswith('http://') or arg.startswith('https://') or ('.' in arg and not os.path.exists(arg)):
         # Request web URL
@@ -41,7 +43,7 @@ def arg_to_code_output(arg):
             with pipe_write:
                 exec(code)
             output = pipe_read.read()
-        return code, output
+        return code, output_prefix + output
 
     finally:
         for prev, val in prevs.items():

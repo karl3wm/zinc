@@ -194,7 +194,7 @@ struct LoanedConnection
                     break;
                 }
 
-                co_yield {data.data() + start, end - start};
+                co_yield std::string_view(data.data() + start, end - start);
 
                 start = end + 1;
             }
@@ -205,7 +205,7 @@ struct LoanedConnection
         }
 
         if (res_buffer.size() > 0) {
-            co_yield {(char const*)res_buffer.cdata().data(), res_buffer.size()};
+            co_yield std::string_view((char const*)res_buffer.cdata().data(), res_buffer.size());
         }
 
         co_return;

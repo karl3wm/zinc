@@ -16,3 +16,12 @@
 [submodule "third_party/edlib"]
 	path = third_party/edlib
 	url = https://github.com/Martinsos/edlib
+[submodule "third_party/xdiff"]
+	path = third_party/xdiff
+	url = https://github.com/libgit2/xdiff
+[submodule "third_party/diff-match-patch"]
+	path = third_party/diff-match-patch
+	url = https://github.com/dmsnell/diff-match-patch
+[submodule "third_party/step20"]
+	path = third_party/step20
+	url = https://github.com/storm-ptr/step20

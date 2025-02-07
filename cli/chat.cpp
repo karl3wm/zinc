@@ -32,7 +32,7 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
                 break;
             } else while ((extra = cin.rdbuf()->in_avail()) > 1) {
                 size_t msg_size = msg.size();
-                msg.resize(msg_size + extra);
+                msg.resize(msg_size + (size_t)extra);
                 cin.read(&msg[msg_size], extra);
             }
             if (msg.back() == '\n') {

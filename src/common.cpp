@@ -42,29 +42,29 @@ std::string replaced(
     // make the string in one pass using off_repl_list
     std::string replaced(new_size, '\0');
     size_t offset_old = 0;
-    int new_minus_old = 0;
+    ssize_t new_minus_old = 0;
     for (auto off_repl_pair : off_repl_list) {
         auto & replacement = replacements[off_repl_pair.second];
         // write skipped region
         size_t skipped_size = off_repl_pair.first - offset_old;
         replaced.replace(
-            offset_old + new_minus_old, skipped_size,
+            offset_old + (size_t)new_minus_old, skipped_size,
             &haystack[offset_old], skipped_size
         );
         // write replacement
         replaced.replace(
-            off_repl_pair.first + new_minus_old,
+            off_repl_pair.first + (size_t)new_minus_old,
             replacement.second.size(),
             replacement.second
         );
-        new_minus_old += replacement.second.size();
-        new_minus_old -= replacement.first.size();
+        new_minus_old += (ssize_t)replacement.second.size();
+        new_minus_old -= (ssize_t)replacement.first.size();
         offset_old = off_repl_pair.first + replacement.first.size();
     }
     // write skipped region
     size_t skipped_size = haystack.size() - offset_old;
     replaced.replace(
-        offset_old + new_minus_old, skipped_size,
+        offset_old + (size_t)new_minus_old, skipped_size,
         &haystack[offset_old], skipped_size
     );
 

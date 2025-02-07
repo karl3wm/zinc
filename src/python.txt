@@ -1,0 +1,195 @@
+Here are the two code files, `python_embedded.cpp` and `python_subprocess.cpp`, along with a `CMakeLists.txt` snippet to select which one to build.
+
+**python_embedded.cpp**
+```cpp
+#include <Python.h>
+#include <string_view>
+#include <string>
+
+std::string executePythonScript(const std::string_view script) {
+    // Initialize Python interpreter
+    Py_Initialize();
+
+    // Create a Python string object from the script
+    PyObject* pyScript = PyUnicode_FromStringAndSize(script.data(), script.size());
+
+    // Create a Python code object from the script
+    PyObject* pyCode = Py_CompileStringObject(pyScript, "<string>", Py_file_input, NULL, NULL);
+
+    // Create a Python dictionary to hold the global variables
+    PyObject* pyGlobals = PyDict_New();
+
+    // Execute the Python code
+    PyObject* pyResult = PyEval_EvalCode(pyCode, pyGlobals, pyGlobals);
+
+    // Get the output of the execution
+    PyObject* pyOutput = PyObject_GetAttrString(pyGlobals, "__stdout__");
+    if (pyOutput == NULL) {
+        pyOutput = PyUnicode_FromString("");
+    }
+
+    // Convert the output to a C++ string
+    std::string output = PyUnicode_AsUTF8(pyOutput);
+
+    // Clean up
+    Py_DECREF(pyScript);
+    Py_DECREF(pyCode);
+    Py_DECREF(pyGlobals);
+    Py_DECREF(pyResult);
+    Py_DECREF(pyOutput);
+
+    // Finalize Python interpreter
+    Py_Finalize();
+
+    return output;
+}
+```
+
+**python_subprocess.cpp**
+```cpp
+#include <iostream>
+#include <string_view>
+#include <string>
+#include <cstdio>
+#include <memory>
+
+std::string executePythonScript(const std::string_view script) {
+    // Create a temporary file to hold the Python script
+    std::string tmpFile = "tmp.py";
+    FILE* fp = fopen(tmpFile.c_str(), "w");
+    if (fp == NULL) {
+        return "Error: unable to create temporary file";
+    }
+    fwrite(script.data(), 1, script.size(), fp);
+    fclose(fp);
+
+    // Execute the Python script using subprocess
+    std::string command = "/usr/bin/env python3 " + tmpFile;
+    std::string output;
+    FILE* pipe = popen(command.c_str(), "r");
+    if (pipe == NULL) {
+        return "Error: unable to execute Python script";
+    }
+    char buffer[128];
+    while (fgets(buffer, 128, pipe) != NULL) {
+        output += buffer;
+    }
+    pclose(pipe);
+
+    // Remove the temporary file
+    remove(tmpFile.c_str());
+
+    return output;
+}
+```
+
+**CMakeLists.txt snippet**
+```cmake
+option(USE_PYTHON_EMBEDDED "Use embedded Python interpreter" OFF)
+
+if (USE_PYTHON_EMBEDDED)
+    find_package(PythonLibs REQUIRED)
+    add_executable(python_executor python_embedded.cpp)
+    target_link_libraries(python_executor ${PYTHON_LIBRARIES})
+else ()
+    add_executable(python_executor python_subprocess.cpp)
+endif ()
+```
+
+To use the embedded Python interpreter, set the `USE_PYTHON_EMBEDDED` option to `ON` when running CMake. Otherwise, the subprocess approach will be used.
+
+Note: The `python_embedded.cpp` file requires the Python development package to be installed on your system, and the `python_subprocess.cpp` file requires the `python3` executable to be available in your system's PATH.
+Yes, it would be more robust to use normal path lookup instead of relying on `/usr/bin/env`. You can use the `std::filesystem` library in C++20 to search for the Python executable in the system's PATH.
+
+Here's an updated version of the `python_subprocess.cpp` file that uses `std::filesystem` to find the Python executable:
+
+```cpp
+#include <iostream>
+#include <string_view>
+#include <string>
+#include <cstdio>
+#include <memory>
+#include <filesystem>
+#include <cstdlib>
+
+std::string findPythonExecutable() {
+    const char* pathEnv = std::getenv("PATH");
+    if (pathEnv == nullptr) {
+        return "";
+    }
+
+    std::string pathStr(pathEnv);
+    size_t start = 0;
+    size_t end = pathStr.find(':');
+    while (end != std::string::npos) {
+        std::string path = pathStr.substr(start, end - start);
+        std::filesystem::path pythonPath = path / "python3";
+        if (std::filesystem::exists(pythonPath) && std::filesystem::is_executable(pythonPath)) {
+            return pythonPath.string();
+        }
+        start = end + 1;
+        end = pathStr.find(':', start);
+    }
+
+    // Check the last path component
+    std::filesystem::path pythonPath = pathStr.substr(start) / "python3";
+    if (std::filesystem::exists(pythonPath) && std::filesystem::is_executable(pythonPath)) {
+        return pythonPath.string();
+    }
+
+    return "";
+}
+
+std::string executePythonScript(const std::string_view script) {
+    // Create a temporary file to hold the Python script
+    std::string tmpFile = "tmp.py";
+    FILE* fp = fopen(tmpFile.c_str(), "w");
+    if (fp == NULL) {
+        return "Error: unable to create temporary file";
+    }
+    fwrite(script.data(), 1, script.size(), fp);
+    fclose(fp);
+
+    // Find the Python executable
+    std::string pythonExecutable = findPythonExecutable();
+    if (pythonExecutable.empty()) {
+        return "Error: unable to find Python executable";
+    }
+
+    // Execute the Python script using subprocess
+    std::string command = pythonExecutable + " " + tmpFile;
+    std::string output;
+    FILE* pipe = popen(command.c_str(), "r");
+    if (pipe == NULL) {
+        return "Error: unable to execute Python script";
+    }
+    char buffer[128];
+    while (fgets(buffer, 128, pipe) != NULL) {
+        output += buffer;
+    }
+    pclose(pipe);
+
+    // Remove the temporary file
+    remove(tmpFile.c_str());
+
+    return output;
+}
+```
+
+As for the `CMakeLists.txt` file, if you're using a glob to collect the source files, you can modify the `if` statement to include the `python_subprocess.cpp` file only when the `USE_PYTHON_EMBEDDED` option is `OFF`. Here's an example:
+
+```cmake
+option(USE_PYTHON_EMBEDDED "Use embedded Python interpreter" OFF)
+
+file(GLOB SOURCES *.cpp)
+
+if (USE_PYTHON_EMBEDDED)
+    list(REMOVE_ITEM SOURCES python_subprocess.cpp)
+    find_package(PythonLibs REQUIRED)
+    target_link_libraries(python_executor ${PYTHON_LIBRARIES})
+endif ()
+
+add_executable(python_executor ${SOURCES})
+```
+
+This will include all `.cpp` files in the current directory in the `python_executor` target, except for `python_subprocess.cpp` when the `USE_PYTHON_EMBEDDED` option is `ON`.
