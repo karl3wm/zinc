@@ -1,74 +1,170 @@
 #include <zinc/common.hpp>
 
 #include <algorithm>
+#include <cstring>
 #include <vector>
+
+#include <sys/wait.h>
+#include <unistd.h>
+
+namespace {
+struct SubstringFinder
+{
+
+    void reset(std::string_view haystack)
+    {
+        this->haystack = haystack;
+        needles.clear();
+        off_needle_pairs.clear();
+    }
+
+    void add_needle(std::string_view needle)
+    {
+        size_t i = needles.size();
+        needles.emplace_back(needle);
+        off_needle_pairs.emplace_back(haystack.find(needle), i);
+    }
+
+    void begin()
+    {
+        std::sort(off_needle_pairs.begin(), off_needle_pairs.end());
+    }
+
+    bool has_more()
+    {
+        return off_needle_pairs.front().first != std::string_view::npos;
+    }
+
+    std::pair<size_t, size_t> find_next()
+    {
+        auto updated = off_needle_pairs.front();
+        auto result = updated;
+        auto & [off, idx] = updated;
+        auto & needle = needles[idx];
+        off += needle.size();
+        off = haystack.find(needle, off);
+        auto sort = std::lower_bound(off_needle_pairs.begin(), off_needle_pairs.end(), updated);
+        if (sort > off_needle_pairs.begin()) {
+	        std::copy(off_needle_pairs.begin()+1, sort, off_needle_pairs.begin());
+            -- sort;
+        }
+        *sort = updated;
+        return result;
+    }
+
+    std::string_view haystack;
+    std::vector<std::string_view> needles;
+    std::vector<std::pair<size_t, size_t>> off_needle_pairs;
+};
+
+SubstringFinder & substring_finder() {
+    static thread_local SubstringFinder substring_finder;
+    return substring_finder;
+}
+}
 
 namespace zinc {
 
-std::string replaced(
+std::span<std::pair<size_t, size_t>> find_all_of(
+    std::string_view haystack,
+    std::span<std::string_view> needles
+)
+{
+    static thread_local std::vector<std::pair<size_t, size_t>> matches;
+
+    substring_finder().reset(haystack);
+    for (auto & needle : needles)
+        substring_finder().add_needle(needle);
+    substring_finder().begin();
+
+    matches.clear();
+    while (substring_finder().has_more()) {
+        matches.emplace_back(substring_finder().find_next());
+    }
+
+    return matches;
+}
+
+std::pair<size_t, size_t> find_first_of(
+    std::string_view haystack,
+    std::span<std::string_view> needles
+)
+{
+    substring_finder().reset(haystack);
+    for (auto needle : needles)
+        substring_finder().add_needle(needle);
+    substring_finder().begin();
+
+    return substring_finder().find_next();
+}
+
+std::string_view replaced(
     std::string_view haystack,
     std::span<StringViewPair const> replacements
 )
 {
-    static thread_local std::vector<std::pair<size_t, size_t>> off_repl_pairs;
-    static thread_local std::vector<std::pair<size_t, size_t>> off_repl_list;
-    size_t new_size = haystack.size();
-    off_repl_pairs.clear();
-    off_repl_list.clear();
+    static thread_local std::string replaced;
 
-    // iterate through the string, using off_repl_pairs to track substrs
-    off_repl_pairs.resize(replacements.size());
-    for (size_t i = 0; i < replacements.size(); ++ i) {
-        off_repl_pairs[i].first = haystack.find(replacements[i].first, 0);
-        off_repl_pairs[i].second = i;
+    substring_finder().reset(haystack);
+    for (auto [needle, repl] : replacements) {
+        substring_finder().add_needle(needle);
     }
-    std::sort(off_repl_pairs.begin(), off_repl_pairs.end());
-    while (off_repl_pairs.front().first != std::string::npos) {
-        auto off_repl_pair = off_repl_pairs.front();
-        auto & replacement = replacements[off_repl_pair.second];
-        off_repl_list.emplace_back(off_repl_pair);
-        new_size += replacement.second.size();
-        new_size -= replacement.first.size();
-        off_repl_pair.first += replacement.first.size();
-        off_repl_pair.first = haystack.find(replacement.first, off_repl_pair.first);
-        auto sort = std::lower_bound(off_repl_pairs.begin(), off_repl_pairs.end(), off_repl_pair);
-        if (sort > off_repl_pairs.begin()) {
-	        std::copy(off_repl_pairs.begin()+1, sort, off_repl_pairs.begin());
-            -- sort;
-	        *sort = off_repl_pair;
-        }
-    }
+    substring_finder().begin();
 
-    // make the string in one pass using off_repl_list
-    std::string replaced(new_size, '\0');
-    size_t offset_old = 0;
-    ssize_t new_minus_old = 0;
-    for (auto off_repl_pair : off_repl_list) {
-        auto & replacement = replacements[off_repl_pair.second];
-        // write skipped region
-        size_t skipped_size = off_repl_pair.first - offset_old;
-        replaced.replace(
-            offset_old + (size_t)new_minus_old, skipped_size,
-            &haystack[offset_old], skipped_size
-        );
-        // write replacement
-        replaced.replace(
-            off_repl_pair.first + (size_t)new_minus_old,
-            replacement.second.size(),
-            replacement.second
-        );
-        new_minus_old += (ssize_t)replacement.second.size();
-        new_minus_old -= (ssize_t)replacement.first.size();
-        offset_old = off_repl_pair.first + replacement.first.size();
+    replaced.clear();
+    size_t off_old = 0;
+    while (substring_finder().has_more()) {
+        auto [ off, idx ] = substring_finder().find_next();
+        auto & [ _, repl ] = replacements[idx];
+        replaced.append(&haystack[off_old], &haystack[off]);
+        replaced.append(repl);
+        off_old = off + repl.size();
     }
-    // write skipped region
-    size_t skipped_size = haystack.size() - offset_old;
-    replaced.replace(
-        offset_old + (size_t)new_minus_old, skipped_size,
-        &haystack[offset_old], skipped_size
-    );
+    replaced.append(&haystack[off_old], &*haystack.end());
 
     return replaced;
+}
+
+generator<std::string_view> shell(std::string_view cmdline_)
+{
+    static thread_local std::string cmdline;
+    static thread_local std::string buffer;
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        throw std::runtime_error("pipe()");
+    }
+    cmdline = cmdline_;
+    pid_t pid = fork();
+    if (pid == -1) {
+        throw std::runtime_error("fork()");
+    }
+    if (pid == 0) {
+        // child
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
+
+        char const* shell = std::getenv("SHELL");
+        if (shell) {
+            execl(shell, shell, "-c", cmdline.c_str(), nullptr);
+        } else {
+            execl("/bin/sh", "sh", "-c", cmdline.c_str(), nullptr);
+        }
+        write(STDERR_FILENO, "failed: execl()\n", strlen("failed: execl()\n"));
+        exit(-1);
+    } else {
+        // parent
+        close(pipefd[1]);
+        buffer.reserve(1024);
+        buffer.resize(buffer.capacity());
+        ssize_t bytes_read;
+        while ((bytes_read = read(pipefd[0], buffer.data(), buffer.size())) > 0) {
+            co_yield std::string_view(buffer).substr(0, (size_t)bytes_read);
+        }
+        close(pipefd[0]);
+        wait(nullptr);
+    }
 }
 
 } // namespace zinc

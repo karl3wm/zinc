@@ -66,6 +66,9 @@ struct URL {
         }
         host = url.host();
         path = url.path();
+        if (path.empty()) {
+            path = "/";
+        }
     }
     std::string host, path;
     std::string_view port;

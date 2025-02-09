@@ -17,15 +17,26 @@ using StringPair = std::pair<std::string, std::string>;
 
 // Helper function to create a literal span
 template <typename T>
-std::span<T const> span(std::initializer_list<T> const & contiguous)
+std::span<T> span(std::initializer_list<T> contiguous)
 {
-    return std::span((T const*)contiguous.begin(), contiguous.size());
+    return std::span((T*)contiguous.begin(), contiguous.size());
 }
 
-// Helper functions to replace substrings
-std::string replaced(
+// Helper functions for substrings of strings
+std::span<std::pair<size_t, size_t>> find_all_of(
     std::string_view haystack,
-    std::span<StringViewPair const> replacements
+    std::span<std::string_view> needles
 );
+std::pair<size_t, size_t> find_first_of(
+    std::string_view haystack,
+    std::span<std::string_view> needles
+);
+std::string_view replaced(
+    std::string_view haystack,
+    std::span<StringViewPair> replacements
+);
+
+// Run some commands in the user's shell
+generator<std::string_view> shell(std::string_view cmdline);
 
 }
