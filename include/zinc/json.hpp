@@ -38,6 +38,7 @@ public:
     bool operator==(JSON const&json) const { return 0==(*this<=>json); }
 
     JSON const& operator[](std::string_view key) const;
+    JSON const& operator[](size_t idx) const;
 
     auto& string() const
     { return std::get<std::string_view>(*this); }

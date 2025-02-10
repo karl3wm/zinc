@@ -15,6 +15,20 @@ namespace zinc {
 
 namespace {
 
+void dbg_walk(JSON const*json) {
+    if (auto*array = std::get_if<std::span<JSON>>(json)) {
+        for (auto & elem : *array) {
+            dbg_walk(&elem);
+        }
+    } else if(auto*dict = std::get_if<std::span<KeyJSONPair>>(json)) {
+        for (auto & [k,v] : *dict) {
+            dbg_walk(&v);
+        }
+    } else if(auto*str = std::get_if<std::string_view>(json)) {
+        std::string string(*str);
+    }
+}
+
 struct ParseHandler
 {
     static constexpr std::size_t max_object_size = (size_t)-1;
@@ -80,30 +94,40 @@ struct ParseHandler
         doc.handler->del(doc);
     }
 
+    inline void adjust_store_json_ptrs(JSON*json, ptrdiff_t store_offset)
+    {
+        if (auto span = std::get_if<std::span<JSON>>(json)) {
+            *span = {
+                (JSON*)((char*)span->data() + store_offset),
+                span->size()
+            };
+        } else if (auto span = std::get_if<std::span<KeyJSONPair>>(json)) {
+            *span = {
+                (KeyJSONPair*)((char*)span->data() + store_offset),
+                span->size()
+            };
+        } else if (auto sv = std::get_if<std::string_view>(json)) {
+            *sv = {
+                sv->data() + store_offset,
+                sv->size()
+            };
+        } else {
+            throw std::logic_error("non-pointer json in ptr_jsons");
+        }
+    }
     inline void adjust_store_pointers(ptrdiff_t store_offset)
     {
         if (!store_offset) {
             return;
         }
-        for (JSON * json : ptr_jsons) {
-            if (auto span = std::get_if<std::span<JSON>>(json)) {
-                *span = {
-                    (JSON*)((char*)span->data() + store_offset),
-                    span->size()
-                };
-            } else if (auto span = std::get_if<std::span<KeyJSONPair>>(json)) {
-                *span = {
-                    (KeyJSONPair*)((char*)span->data() + store_offset),
-                    span->size()
-                };
-            } else if (auto sv = std::get_if<std::string_view>(json)) {
-                *sv = {
-                    sv->data() + store_offset,
-                    sv->size()
-                };
-            } else {
-                throw std::logic_error("non-pointer json in ptr_jsons");
+        for (JSON & json : stack) {
+            if (json_is_ptr(json)) {
+                adjust_store_json_ptrs(&json, store_offset);
             }
+        }
+        for (JSON *& json : ptr_jsons) {
+            json = (JSON*)((char*)json + store_offset);
+            adjust_store_json_ptrs(json, store_offset);
         }   
         for (DocImpl*& doc : docs) {
             doc = (DocImpl*)((char*)doc + store_offset);
@@ -133,6 +157,9 @@ struct ParseHandler
     }
 
     inline char* reserve(size_t n) {
+        for (auto &json : stack) {
+            dbg_walk(&json);
+        }
         if (store.back_free_capacity() < n) {
             size_t new_capacity = std::max(store.size(), 64ul);
             while (new_capacity < store.size() + n) {
@@ -141,6 +168,9 @@ struct ParseHandler
             char* old = store.data();
             store.reserve_back(new_capacity);
             adjust_store_pointers(store.data() - old);
+            for (auto &json : stack) {
+                dbg_walk(&json);
+            }
         }
         return store.end();
     }
@@ -183,11 +213,17 @@ struct ParseHandler
     inline char* store_json(JSON const & json)
     {
         bool is_ptr = json_is_ptr(json);
+        dbg_walk(&json);
+        for (auto &json : stack) {
+            dbg_walk(&json);
+        }
 
         auto seat = (JSON*)reserve(sizeof(JSON));
+        dbg_walk(&json);
         store.insert(store.end(), (char*)&json, (char*)(&json + 1));
         //store.resize_back(store.size() + sizeof(json));
         //new (seat) JSON(json);
+        dbg_walk(seat);
 
         if (is_ptr) {
             add_ptr_json(seat);
@@ -240,6 +276,9 @@ struct ParseHandler
     inline bool on_object_end(std::size_t n, error_code&) {
         auto bot_start = (KeyJSONPair*)reserve(sizeof(KeyJSONPair) * n + sizeof(JSON));
         auto top_end = stack.end(), top_start = top_end - (ssize_t)n * 2;
+        for (auto &json : stack) {
+            dbg_walk(&json);
+        }
         for (auto json = top_start; json != top_end;) {
             store_key(std::get<std::string_view>(*json));
             ++ json;
@@ -267,18 +306,23 @@ struct ParseHandler
         stack.emplace_back(std::span<JSON>(bot_start, bot_end));
         return true;
     }
+    /*
+     * boost does not forward the original document ranges to on_key* and
+     * on_part*. rather, it puts the data in a buffer on the stack, and hands
+     * pointers that point into this buffer.
+     */
     inline bool on_key_part(string_view s, std::size_t, error_code&) {
         store_chars(s);
         return true;
     }
     inline bool on_key(string_view s, std::size_t n, error_code&) {
-        if (s.size() < n) {
-            store_chars(s);
-            auto end = store.end(), start = end - n;
-            stack.emplace_back(std::string_view{start, end});
-        } else {
-            stack.emplace_back(s);
-        }
+        /* if boost::json were adjusted or if the raw pointer offsets were tracked
+         * then the original data could be referenced directly here.
+         * escaping can possibly be checked for with s.size() != n.
+         */
+        store_chars(s);
+        auto end = store.end(), start = end - n;
+        stack.emplace_back(std::string_view{start, end});
         return true;
     }
     inline bool on_string_part(string_view s, std::size_t, error_code&) {
@@ -286,13 +330,13 @@ struct ParseHandler
         return true;
     }
     inline bool on_string(string_view s, std::size_t n, error_code&) {
-        if (s.size() < n) {
-            store_chars(s);
-            auto end = store.end(), start = end - n;
-            stack.emplace_back(std::string_view{start, end});
-        } else {
-            stack.emplace_back(s);
-        }
+        /* if boost::json were adjusted or if the raw pointer offsets were tracked
+         * then the original data could be referenced directly here.
+         * escaping can possibly be checked for with s.size() != n.
+         */
+        store_chars(s);
+        auto end = store.end(), start = end - n;
+        stack.emplace_back(std::string_view{start, end});
         return true;
     }
     inline bool on_number_part(string_view, error_code&)
@@ -673,9 +717,8 @@ std::partial_ordering JSON::operator<=>(JSON const& json) const
 
 JSON const& JSON::operator[](std::string_view key) const
 {
-    auto & span = std::get<std::span<KeyJSONPair>>(*this);
     JSON * result = nullptr;
-    for (auto & [k, json] : span) {
+    for (auto & [k, json] : object()) {
         if (k == key) {
             if (result != nullptr) {
                 throw std::out_of_range("multiple entries");
@@ -687,6 +730,11 @@ JSON const& JSON::operator[](std::string_view key) const
         throw std::out_of_range("not found");
     }
     return *result;
+}
+
+JSON const& JSON::operator[](size_t idx) const
+{
+    return array()[idx];
 }
 
 JSON::Doc::Doc(JSON*root)
