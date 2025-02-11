@@ -44,7 +44,7 @@ struct ParseHandler
                 dbg_walk(&v, depth+1);
             }
         } else if(auto*str = std::get_if<std::string_view>(json)) {
-            assert((void*)&*str->begin() >= (void*)&*store.begin() && (void*)&*str->end() <= (void*)&*store.end() && str->end() >= str->begin());
+            assert((!str->size() && str->begin() == nullptr) || ((void*)&*str->begin() >= (void*)&*store.begin() && (void*)&*str->end() <= (void*)&*store.end() && str->end() >= str->begin()));
             //if(depth==0)std::cerr << "\"" << *str << "\" "; /*dbg*/
             static std::string string;
             string = *str;
@@ -235,7 +235,8 @@ struct ParseHandler
             return true;
         } else if (std::string_view const * sv = std::get_if<std::string_view>(&json)) {
             if (sv->data() >= store.data() - store_offset
-             && sv->data() < &*store.end() - store_offset) {
+             && sv->data() <= &*store.end() - store_offset) {
+                assert(sv->size() + sv->data() <= &*store.end());
                 return true;
             }
         }
@@ -277,6 +278,7 @@ struct ParseHandler
 
     inline DocImpl& store_doc()
     {
+        //std::cerr<<"store_doc start"<<std::endl;
         assert(nullptr == docimpl);
         char* storeptr = reserve(sizeof(DocImpl), alignof(DocImpl));
         JSON** ptrsptr = ptr_jsons.end();
@@ -298,6 +300,7 @@ struct ParseHandler
     //}
 
     inline bool on_document_begin(error_code&) {
+        //std::cerr<<"on_document_begin"<<std::endl;
         store_doc();
         return true;
     }
