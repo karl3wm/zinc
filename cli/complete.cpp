@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
     string_view url = "https://api.sambanova.ai";
     string_view model = "Meta-Llama-3.1-405B-Instruct";
     string_view key = "d8957211-24e6-426d-90cc-b267ce681e4f";
-    OpenAI client(url, model, key, zinc::span<OpenAI::KeyJSONPair>({{"max_tokens", 4096}}));
+    OpenAI client(url, model, key, zinc::span<KeyJSONPair>({{"max_tokens", 4096}}));
 
     string prompt = "";
     for (int i = 1; i < argc; ++ i) {

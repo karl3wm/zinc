@@ -1,6 +1,7 @@
 #pragma once
 
 #include <zinc/common.hpp>
+#include <zinc/json.hpp>
 
 #include <span>
 #include <string>
@@ -14,11 +15,8 @@ class OpenAI {
 public:
     using RoleContentPair = StringPair;
 
-    using JSONValue = std::variant<std::string_view, double, long, bool, std::nullptr_t>;
-    using KeyJSONPair = std::pair<std::string_view, JSONValue>;
-
     struct StreamPart : public std::string_view {
-        std::span<KeyJSONPair> data; // Raw data returned by the server
+        JSON data; // Raw data returned by the server
     };
 
     /**
@@ -73,7 +71,7 @@ private:
     std::string const endpoint_chats_;
     std::string const bearer_;
     std::vector<std::pair<std::string_view, std::string_view>> headers_;
-    std::vector<std::pair<std::string, JSONValue>> defaults_;
+    std::vector<std::pair<std::string, JSON>> defaults_;
 };
 
 } // namespace zinc

@@ -57,7 +57,7 @@ int main() {
         "https://api.sambanova.ai", // url
         "Meta-Llama-3.1-405B-Instruct", // model
         "d8957211-24e6-426d-90cc-b267ce681e4f", // api key
-        span<OpenAI::KeyJSONPair>({ // default parameters
+        span<KeyJSONPair>({ // default parameters
             {"max_tokens", 4}
         })
     );
