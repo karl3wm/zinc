@@ -8,6 +8,7 @@
 #include <boost/json/impl/serializer.ipp>
 
 #include <map>
+#include <memory>
 //#include <iostream> /*dbg*/
 
 using namespace boost::json;
@@ -23,29 +24,33 @@ struct ParseHandler
     static constexpr std::size_t max_key_size = (size_t)-1;
     static constexpr std::size_t max_string_size = (size_t)-1;
 
-    /*
+    ///*
     void dbg_walk(JSON const*json, int depth=0) {
+        static JSON dbgval;
+        dbgval = *json;
         if (auto*array = std::get_if<std::span<JSON>>(json)) {
-            if(depth==0)std::cerr << "array ";
+            //if(depth==0)std::cerr << "array "; /*dbg*/
             assert((void*)&*array->begin() >= (void*)store.begin() && (void*)&*array->end() <= (void*)store.end() && array->end() >= array->begin());
             for (auto & elem : *array) {
                 dbg_walk(&elem, depth+1);
             }
         } else if(auto*dict = std::get_if<std::span<KeyJSONPair>>(json)) {
-            if(depth==0)std::cerr << "dict ";
+            //if(depth==0)std::cerr << "dict "; /*dbg*/
             assert((void*)&*dict->begin() >= (void*)&*store.begin() && (void*)&*dict->end() <= (void*)&*store.end() && dict->end() >= dict->begin());
             for (auto & [k,v] : *dict) {
                 assert(k.begin() >= (void*)&*store.begin() && (void*)&*k.end() <= (void*)&*store.end() && k.end() >= k.begin());
-                static std::string string(k);
+                static std::string string;
+                string = k;
                 dbg_walk(&v, depth+1);
             }
         } else if(auto*str = std::get_if<std::string_view>(json)) {
             assert((void*)&*str->begin() >= (void*)&*store.begin() && (void*)&*str->end() <= (void*)&*store.end() && str->end() >= str->begin());
-            if(depth==0)std::cerr << "\"" << *str << "\" ";
-            static std::string string(*str);
+            //if(depth==0)std::cerr << "\"" << *str << "\" "; /*dbg*/
+            static std::string string;
+            string = *str;
         }
     }
-    */
+    //*/
 
     struct DocImpl : public zinc::JSON {
         DocImpl(
@@ -128,8 +133,8 @@ struct ParseHandler
                 sv->data() + store_offset,
                 sv->size()
             };
-            //static std::string dbgstr;
-            //dbgstr = std::get<std::string_view>(*json);
+            static std::string dbgstr;
+            dbgstr = std::get<std::string_view>(*json);
         } else {
             throw std::logic_error("non-pointer json in ptr_jsons");
         }
@@ -175,27 +180,36 @@ struct ParseHandler
         }
     }
 
-    inline char* reserve(size_t n) {
-        /*
+    inline char* reserve(size_t n, size_t a  = 1) {
+        ///*
         for (auto &json : stack) {
             dbg_walk(&json);
         }
-        */
-        if (store.back_free_capacity() < n) {
-            size_t new_capacity = std::max(store.size(), 64ul);
-            while (new_capacity < store.size() + n) {
+        //*/
+        size_t avail;
+        void* result;
+        result = std::align(a, n, result = store.end(), avail = store.back_free_capacity());
+        if (!result) {
+            size_t min_capacity = n + store.size() + a;
+            size_t new_capacity = std::max(avail + store.size(), 64ul);
+            while (new_capacity < min_capacity) {
                 new_capacity *= 2;
             }
             char* old = store.data();
             store.reserve_back(new_capacity);
             adjust_store_pointers(store.data() - old);
-            /*
+            ///*
             for (auto &json : stack) {
                 dbg_walk(&json);
             }
-            */
+            //*/
+            result = std::align(a, n, result = store.end(), avail = store.back_free_capacity());
+            assert(result);
         }
-        return store.end();
+        if (result > store.end()) {
+            store.resize((size_t)((char*)result - store.begin()));
+        }
+        return (char*)result;
     }
     inline char* store_chars(std::string_view chars)
     {
@@ -206,7 +220,9 @@ struct ParseHandler
     inline std::string_view& store_key(std::string_view key)
     {
         //auto seat = (std::string_view*)reserve(sizeof(key));
-        store.insert(reserve(sizeof(key)), (char*)&key, (char*)(&key+1));
+        auto dbgcmp1 = store.end(); /* checking reserve is a no-op because key is only used in contiguous spans of pairs */
+        auto dbgcmp2 = store.insert(reserve(sizeof(key), alignof(decltype(key))), (char*)&key, (char*)(&key+1));
+        assert(dbgcmp1 == dbgcmp2);
         //store.resize_back(store.size() + sizeof(key));
         //new (seat) std::string_view(key);
         return *(std::string_view*)(store.end() - sizeof(key));
@@ -236,19 +252,21 @@ struct ParseHandler
     inline JSON& store_json(JSON const & json)
     {
         bool is_ptr = json_is_ptr(json);
-        /*
+        ///*
         dbg_walk(&json);
         for (auto &json : stack) {
             dbg_walk(&json);
         }
-        */
+        //*/
 
-        auto seat = (JSON*)reserve(sizeof(JSON));
-        //dbg_walk(&json);
+        auto seat = (JSON*)reserve(sizeof(JSON), alignof(JSON));
+        dbg_walk(&json);
+        auto dbg = store.begin();
         store.insert(store.end(), (char*)&json, (char*)(&json + 1));
+        assert(store.begin() == dbg);
         //store.resize_back(store.size() + sizeof(json));
         //new (seat) JSON(json);
-        //dbg_walk(seat);
+        dbg_walk(seat);
 
         if (is_ptr) {
             add_ptr_json(seat);
@@ -260,7 +278,7 @@ struct ParseHandler
     inline DocImpl& store_doc()
     {
         assert(nullptr == docimpl);
-        char* storeptr = reserve(sizeof(DocImpl));
+        char* storeptr = reserve(sizeof(DocImpl), alignof(DocImpl));
         JSON** ptrsptr = ptr_jsons.end();
         docimpl = (DocImpl*)storeptr;
         docs.push_back(docimpl);
@@ -301,13 +319,13 @@ struct ParseHandler
     }
     inline bool on_object_end(std::size_t n, error_code&) {
         //std::cerr<< "ON_OBJECT_END start" << std::endl; /*dbg*/
-        /*
+        ///*
         for (auto &json : stack) {
             dbg_walk(&json);
         }
-        */
-        auto store_start = (KeyJSONPair*)reserve(sizeof(KeyJSONPair) * n + sizeof(JSON));
-        //auto dbg_store_start = store.begin();
+        //*/
+        auto store_start = (KeyJSONPair*)reserve(sizeof(KeyJSONPair) * n + sizeof(JSON), alignof(KeyJSONPair));
+        auto dbg_store_start = store.begin();
         auto stack_end = stack.end(), stack_start = stack_end - (ssize_t)n * 2;
         for (auto it = stack_start; it != stack_end;) {
             // this shouldn't cause reallocation because reserve was called earlier
@@ -316,7 +334,7 @@ struct ParseHandler
             store_json(*it);
             ++ it;
         }
-        //assert(store.begin() == dbg_store_start);
+        assert(store.begin() == dbg_store_start);
         auto store_end = (KeyJSONPair*)&*store.end();
         assert(store_end == store_start + n);
         stack.erase(stack_start, stack_end);
@@ -330,7 +348,7 @@ struct ParseHandler
     }
     inline bool on_array_end(std::size_t n, error_code&)
     {
-        auto store_start = (JSON*)reserve(sizeof(JSON) * n + sizeof(JSON));
+        auto store_start = (JSON*)reserve(sizeof(JSON) * n + sizeof(JSON), alignof(JSON));
         auto stack_end = stack.end(), stack_start = stack_end - (ssize_t)n;
         for (auto it = stack_start; it != stack_end; ++ it) {
             store_json(*it);
