@@ -1,5 +1,5 @@
 #define BOOST_TEST_MODULE JSONTest
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <zinc/json.hpp>
 #include <string_view>
 #include <span>
