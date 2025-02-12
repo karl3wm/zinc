@@ -1,31 +1,44 @@
 # Minimum CMake version required
 cmake_minimum_required(VERSION 3.18)
+
 # Project name and version
 project(ZinC VERSION 0.1 LANGUAGES CXX C)
+
 # Specify the C++ standard
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Options for enabling AddressSanitizer and tests
 option(ENABLE_ASAN "Enable AddressSanitizer" ON)
 option(ENABLE_TESTS "Enable building and running tests" ON)
 
-# Find Boost
-find_package(Boost 1.81.0 REQUIRED COMPONENTS url json OPTIONAL_COMPONENTS unit_test_framework)
+# Find Boost components required for the main library
+find_package(Boost 1.81.0 REQUIRED COMPONENTS url json)
 find_package(OpenSSL REQUIRED) # for boost networking
 
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/include ${Boost_INCLUDE_DIRS})
 
+# Define a list of Boost components required for tests
+set(BOOST_TEST_COMPONENTS unit_test_framework filesystem)
+
+# Conditionally enable tests
 if(ENABLE_TESTS)
-    if(NOT Boost_UNIT_TEST_FRAMEWORK_FOUND)
-        message(FATAL_ERROR "Tests require boost unit_test_framework.")
-    endif()
+    # Find Boost components required for tests
+    find_package(Boost 1.81.0 COMPONENTS ${BOOST_TEST_COMPONENTS})
+
+    # Check if all Boost test components are found
+    foreach(component IN LISTS BOOST_TEST_COMPONENTS)
+        if(NOT Boost_${component}_FOUND)
+            message(FATAL_ERROR "Tests require the Boost ${component} component. Please install it or disable tests by setting ENABLE_TESTS to OFF.")
+        endif()
+    endforeach()
 
     # Function to add a test executable
     function(add_test_executable TEST_NAME TEST_SOURCE)
         add_executable(${TEST_NAME} ${TEST_SOURCE})
-        target_link_libraries(${TEST_NAME} PRIVATE zinc ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY})
+        target_link_libraries(${TEST_NAME} PRIVATE zinc ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY} Boost::filesystem)
         add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
     endfunction()
 
@@ -61,6 +74,7 @@ foreach(CLI_SOURCE IN LISTS CLI_SOURCES)
     target_link_libraries(${CLI_NAME} PRIVATE zinc)
 endforeach()
 
+# Set compiler flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra --pedantic-errors")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wconversion -Wsign-conversion")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -ggdb -fno-omit-frame-pointer -Werror")
