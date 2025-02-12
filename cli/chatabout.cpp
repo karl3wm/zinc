@@ -1,3 +1,4 @@
+#include <zinc/hodgepodge.hpp>
 #include <zinc/http.hpp>
 #include <zinc/openai.hpp>
 #include <zinc/log.hpp>
@@ -140,7 +141,8 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
             zinc::span<KeyJSONPair>({{"max_completion_tokens", 4096}})
     );
 
-    vector<OpenAI::RoleContentPair> messages;
+    //vector<OpenAI::RoleContentPair> messages;
+    vector<HodgePodge::Message> messages;
     string msg, input;
     int retry_assistant;
 
@@ -148,6 +150,7 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
         msg = msg + "$(<" + argv[i] + ") ";
     }
 
+    std::string prompt;
     while ("end of input not reached") {
         cerr << endl << "user: " << flush;
         if (!msg.empty()) {
@@ -175,38 +178,45 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
             {"content", msg},
         }));
 
-        messages.emplace_back("user", move(msg));
+        messages.emplace_back(HodgePodge::Message{.role="user", .content=move(msg)});
         // it might be nice to terminate the request if more data is found on stdin, append the data, and retry
         // or otherwise provide for the user pasting some data then commenting on it or hitting enter a second time or whatnot
+        prompt = HodgePodge::prompt_deepseek3(messages, "assistant" != messages.back().role);
+        msg.clear();
 
         cerr << endl << "assistant: " << flush;
         do {
             try {
-                for (auto&& part : client.chat(messages)) {
+                //for (auto&& part : client.chat(messages)) {
+                std::string finish_reason;
+                for (auto&& part : client.complete(prompt + msg)) {
                     msg += part;
                     cout << part << flush;
+                    try {
+                        finish_reason = part.data["finish_reason"].string();
+                    } catch (std::out_of_range const&) {}
                 }
-                retry_assistant = false;
-            } catch (std::system_error const& e) {
+                retry_assistant = finish_reason == "stop" ? false : true;
+            } catch (std::runtime_error const& e) {
+                retry_assistant = true;
+                cerr << "<..." << e.what() << "...reconnecting...>" << flush;
+            /*} catch (std::system_error const& e) {
                 if (e.code() == std::errc::resource_unavailable_try_again) {
                     retry_assistant = true;
                     cerr << "<...reconnecting...>" << flush;
                 } else {
                     throw;
-                }
+                }*/
             }
 
             Log::log(zinc::span<StringViewPair>({
                 {"role", "assistant"},
                 {"content", msg},
             }));
-
-            if (messages.back().first == "assistant") {
-                messages.back().second += move(msg);
-            } else {
-                messages.emplace_back("assistant", move(msg));
-            }
         } while (retry_assistant);
+
+        messages.emplace_back(HodgePodge::Message{.role="assistant", .content=move(msg)});
+        msg.clear();
 
         cout << endl;
     }

@@ -25,3 +25,9 @@
 [submodule "third_party/step20"]
 	path = third_party/step20
 	url = https://github.com/storm-ptr/step20
+[submodule "third_party/inja"]
+	path = third_party/inja
+	url = https://github.com/pantor/inja
+[submodule "third_party/json"]
+	path = third_party/json
+	url = https://github.com/nlohmann/json
