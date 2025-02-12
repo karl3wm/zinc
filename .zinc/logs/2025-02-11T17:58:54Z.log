@@ -1,0 +1,1 @@
+{"role":"user","content":"I'm using a script that writes a commit message to commit_template.txt . How do I have git use that commit message when I commit?","ts":1.739314749581E9}

@@ -705,7 +705,7 @@ JSON::Doc JSON::decode(std::string_view text)
     parser.reset();
     try {
         /*size_t parsed_size = */parser.write_some(false, text.data(), text.size(), ec);
-        if (ec) { throw std::system_error(ec); }
+        if (ec) { throw std::invalid_argument(ec.message()); }
     } catch(...) {
         parser.handler().abort();
         throw;
