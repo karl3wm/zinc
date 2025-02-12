@@ -125,13 +125,24 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
 
     // Initialize the OpenAI with URL, model, and API key.
     // These values should be replaced
-    string_view url = "https://api.sambanova.ai";
-    string_view model = "Meta-Llama-3.1-405B-Instruct";
-    string_view key = "d8957211-24e6-426d-90cc-b267ce681e4f";
-    OpenAI client(url, model, key);
+    OpenAI client(
+            //"https://api.sambanova.ai",
+            ////"Meta-Llama-3.1-405B-Instruct",
+            //"Llama-3.1-Tulu-3-405B",
+            //"b8736160-f724-4b68-bac0-aea866ceee15",
+            "https://api.targon.com", // url
+            //"deepseek-ai/DeepSeek-R1", // model
+            "deepseek-ai/DeepSeek-V3", // model
+            "sn4_qij7ph9d6yy9ttdizx66x0n5ld96", // key
+            //"https://chutes-deepseek-ai-deepseek-r1.chutes.ai", //url
+            //"deepseek-ai/DeepSeek-R1", //model
+            //"cpk_f6d4acdfdd9e4dca97cc1068ee548e5d.741ff3f12d3e5331b8ac0e1140401452.isBWVv07rRtrxTZVvXi0Wlt7asipainR", //key
+            zinc::span<KeyJSONPair>({{"max_completion_tokens", 4096}})
+    );
 
     vector<OpenAI::RoleContentPair> messages;
     string msg, input;
+    int retry_assistant;
 
     for (int i = 1; i < argc; ++ i) {
         msg = msg + "$(<" + argv[i] + ") ";
@@ -140,7 +151,7 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
     while ("end of input not reached") {
         cerr << endl << "user: " << flush;
         if (!msg.empty()) {
-            cerr << msg << " " << flush;
+            cerr << msg << flush;
         }
         {
             getline(cin, input);
@@ -169,18 +180,35 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
         // or otherwise provide for the user pasting some data then commenting on it or hitting enter a second time or whatnot
 
         cerr << endl << "assistant: " << flush;
-        for (auto&& part : client.chat(messages)) {
-            msg += part;
-            cout << part << flush;
-        }
+        do {
+            try {
+                for (auto&& part : client.chat(messages)) {
+                    msg += part;
+                    cout << part << flush;
+                }
+                retry_assistant = false;
+            } catch (std::system_error const& e) {
+                if (e.code() == std::errc::resource_unavailable_try_again) {
+                    retry_assistant = true;
+                    cerr << "<...reconnecting...>" << flush;
+                } else {
+                    throw;
+                }
+            }
+
+            Log::log(zinc::span<StringViewPair>({
+                {"role", "assistant"},
+                {"content", msg},
+            }));
+
+            if (messages.back().first == "assistant") {
+                messages.back().second += move(msg);
+            } else {
+                messages.emplace_back("assistant", move(msg));
+            }
+        } while (retry_assistant);
+
         cout << endl;
-
-        Log::log(zinc::span<StringViewPair>({
-            {"role", "assistant"},
-            {"content", msg},
-        }));
-
-        messages.emplace_back("assistant", move(msg));
     }
 
     return 0;

@@ -792,6 +792,19 @@ JSON const& JSON::operator[](size_t idx) const
     return array()[idx];
 }
 
+size_t JSON::size() const
+{
+    if (auto* array = std::get_if<Array>(this)) {
+        return array->size();
+    } else if (auto* object = std::get_if<Object>(this)) {
+        return object->size();
+    } else if (auto& string = std::get_if<String>(this)) {
+        return string->size();
+    } else {
+        throw std::bad_variant_access("unsized");
+    }
+}
+
 JSON::Doc::Doc(JSON*root)
 : root_(root)
 { }

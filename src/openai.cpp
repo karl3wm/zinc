@@ -47,7 +47,20 @@ static zinc::generator<std::span<OpenAI::StreamPart>> process_response_lines(zin
 
         if (line.front() == '{') { // JSON object
             auto doc = JSON::decode(line);
-            auto choices = (*doc)["choices"].array();
+            JSON::Array choices;
+            try {
+                choices = (*doc)["choices"].array();
+            } catch (std::out_of_range&) {
+                if ((*doc)["object"] == JSON("error")) {
+                    // got this from targon, could be forwarded from vllm
+                    // "{\"message\":\"Failed mid-generation, please retry\",\"object\":\"error\",\"Type\":\"InternalServerError\",\"code\":500}"
+                    auto msg = (*doc)["message"].string();
+                    if (msg.find("please retry") != decltype(msg)::npos) {
+                        throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again));
+                    }
+                    throw std::runtime_error(std::string(msg));
+                }
+            }
             if (choices.size() > jsonvalues_list.size()) {
                 jsonvalues_list.resize(choices.size());
             }

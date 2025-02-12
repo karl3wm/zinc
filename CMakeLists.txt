@@ -20,11 +20,11 @@ find_package(OpenSSL REQUIRED) # for boost networking
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/include ${Boost_INCLUDE_DIRS})
 
-# Define a list of Boost components required for tests
-set(BOOST_TEST_COMPONENTS unit_test_framework filesystem)
-
 # Conditionally enable tests
 if(ENABLE_TESTS)
+    # Define a list of Boost components required for tests
+    set(BOOST_TEST_COMPONENTS unit_test_framework)
+
     # Find Boost components required for tests
     find_package(Boost 1.81.0 COMPONENTS ${BOOST_TEST_COMPONENTS})
 
@@ -38,7 +38,11 @@ if(ENABLE_TESTS)
     # Function to add a test executable
     function(add_test_executable TEST_NAME TEST_SOURCE)
         add_executable(${TEST_NAME} ${TEST_SOURCE})
-        target_link_libraries(${TEST_NAME} PRIVATE zinc ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY} Boost::filesystem)
+        target_link_libraries(${TEST_NAME} PRIVATE zinc)
+        # Link against all Boost test components
+        foreach(component IN LISTS BOOST_TEST_COMPONENTS)
+            target_link_libraries(${TEST_NAME} PRIVATE Boost::${component})
+        endforeach()
         add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
     endfunction()
 

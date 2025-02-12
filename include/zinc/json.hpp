@@ -32,6 +32,10 @@ public:
         OBJECT = 6,
     };
 
+    using String = std::variant_alternative_t<STRING, _JSON_variant>;
+    using Array = std::variant_alternative_t<ARRAY, _JSON_variant>;
+    using Object = std::variant_alternative_t<OBJECT, _JSON_variant>;
+
     //std::string_view raw;
 
     std::partial_ordering operator<=>(JSON const&json) const;
@@ -39,6 +43,7 @@ public:
 
     JSON const& operator[](std::string_view key) const;
     JSON const& operator[](size_t idx) const;
+    size_t size() const;
 
     auto& string() const
     { return std::get<std::string_view>(*this); }

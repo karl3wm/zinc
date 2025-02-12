@@ -1,0 +1,1 @@
+{"role":"user","content":"I'm think of adding server mocking with boost_beast to tests for an openai client. How would I gather data to put in the mock?\n","ts":1.739325650064E9}

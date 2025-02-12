@@ -1,5 +1,8 @@
 - The prompt formats that llama models are trained on are at https://github.com/meta-llama/llama-models
     under models/llama[ver]/prompt_format.md where [ver] is among [2,3,3_1,3_2,3_3,...]
+- Tulu prompt formats (and others) i found at https://github.com/allenai/open-instruct/blob/main/eval/templates.py
+    the tulu paper likely is a more official resource of course the right area of code can be more correct
+- DeepSeek-V3 chat template is at https://huggingface.co/deepseek-ai/DeepSeek-V3/resolve/main/tokenizer_config.json
 
 Next I would like to add data storage, such as sqlite3.
 

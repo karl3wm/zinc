@@ -12,7 +12,14 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
     // These values should be replaced
     string_view url = "https://api.sambanova.ai";
     string_view model = "Meta-Llama-3.1-405B-Instruct";
-    string_view key = "d8957211-24e6-426d-90cc-b267ce681e4f";
+    //"d8957211-24e6-426d-90cc-b267ce681e4f" I got an error around 2025-02-09T07-05:00 that my account had been suspended, deactivated, or deleted. I didn't see any emails. I logged in and didn't see any concerns mentioned in my account interface. I generated a new key.
+    ////after the weekend support emailed me and the account is working again. the website looks funny now when i log in, strange numbers and usage history.
+    string_view key = "c639ead6-36dd-4f9c-8001-0f1e0c929ab2";
+
+    url = "https://olmo-api.allen.ai";
+    model = "tulu3-405b";
+    key = "";
+
     OpenAI client(url, model, key);
 
     vector<OpenAI::RoleContentPair> messages;
