@@ -798,10 +798,10 @@ size_t JSON::size() const
         return array->size();
     } else if (auto* object = std::get_if<Object>(this)) {
         return object->size();
-    } else if (auto& string = std::get_if<String>(this)) {
+    } else if (auto* string = std::get_if<String>(this)) {
         return string->size();
     } else {
-        throw std::bad_variant_access("unsized");
+        throw std::bad_variant_access();
     }
 }
 
