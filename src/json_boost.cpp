@@ -794,13 +794,52 @@ JSON const& JSON::operator[](size_t idx) const
 
 size_t JSON::size() const
 {
-    if (auto* array = std::get_if<Array>(this)) {
-        return array->size();
-    } else if (auto* object = std::get_if<Object>(this)) {
-        return object->size();
-    } else if (auto* string = std::get_if<String>(this)) {
-        return string->size();
+    switch (index()) {
+    case STRING:
+        return string().size();
+    case ARRAY:
+        return array().size();
+    case OBJECT:
+        return object().size();
+    default:
+        throw std::bad_variant_access();
+    }
+}
+
+std::string_view JSON::stringy() const
+{
+    if (index() == STRING) {
+        return string();
     } else {
+        return encode();
+    }
+}
+
+JSON const& JSON::dicty(std::string_view key, JSON const&dflt) const
+{
+    try {
+        return (*this)[key];
+    } catch (std::out_of_range const&) {
+        return dflt;
+    }
+}
+
+bool JSON::truthy() const
+{
+    switch (index()) {
+    case (Index)NULL:
+        return false;
+    case INTEGER:
+        return std::get<Integer>(*this);
+    case NUMBER:
+        return std::get<Number>(*this);
+    case STRING:
+        return string().size();
+    case ARRAY:
+        return array().size();
+    case OBJECT:
+        return object().size();
+    default:
         throw std::bad_variant_access();
     }
 }

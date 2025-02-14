@@ -1,0 +1,6 @@
+{"role":"user","content":"give me some 8 lines of text. use carriage returns to ensure the count is correct. i'm testing interrupting you.\n","ts":1.739554918823E9}
+{"role":"assistant","content":"Sure! Here are 8 lines of text for your test:  \n\nLine one, testing begins.  \nLine two, continue to pursue.  \nThree, the count is key.  \nFour, aiming for more.  \nFive, the lines","finish_reason":"SIGINT","ts":1.739554925103E9}
+{"role":"user","content":"yayy the interruption worked !\n","ts":1.739554934385E9}
+{"role":"assistant","content":"Glad to hear it worked! 🎉 Here's the rest to complete the 8 lines:  \n\nSix, the mix you fix.  \nSeven, near the heaven.  \nEight, the test is great.  \n\nLet me know if you need anything else! 😊","finish_reason":"","ts":1.739554943132E9}
+{"role":"assistant","content":"👍🏽✨🤌🏽😌🤏🏽🦜🦜🇮🇳🌸🤓😶‍🌫️🤌🏽😶‍🌫️🤏🏽🦜🇮🇳🌸✨😶‍🌫️🦜✨✨🤌🏽🤌🏽🤌🏽🤌🏽👍🏽🎉🎉✨😶‍🌫️🤏🏽🙂🙂✨🇮🇳🇮🇳🎉😊🤏🏽🤏🏽🦜🦜✨🤌🏽✨🎉✨🦜🦜🦜🇮🇳🌸🌸🦜🦜","finish_reason":"stop","ts":1.739554950895E9}
+{"role":"user","content":"can you give me a url that will show the root folder contents of vLLM's github repository?\n","ts":1.739554976346E9}

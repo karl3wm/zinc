@@ -32,6 +32,10 @@ public:
         OBJECT = 6,
     };
 
+    using Null = std::variant_alternative_t<(Index)NULL, _JSON_variant>;
+    using Integer = std::variant_alternative_t<INTEGER, _JSON_variant>;
+    using Number = std::variant_alternative_t<NUMBER, _JSON_variant>;
+    using Bool = std::variant_alternative_t<BOOLEAN, _JSON_variant>;
     using String = std::variant_alternative_t<STRING, _JSON_variant>;
     using Array = std::variant_alternative_t<ARRAY, _JSON_variant>;
     using Object = std::variant_alternative_t<OBJECT, _JSON_variant>;
@@ -45,12 +49,16 @@ public:
     JSON const& operator[](size_t idx) const;
     size_t size() const;
 
-    auto& string() const
-    { return std::get<std::string_view>(*this); }
-    auto& array() const
-    { return std::get<std::span<JSON>>(*this); }
-    auto& object() const
-    { return std::get<std::span<KeyJSONPair>>(*this); }
+    bool truthy() const;
+    std::string_view stringy() const;
+    JSON const& dicty(std::string_view key, JSON const&dflt={}) const;
+
+    String const&string() const
+    { return std::get<String>(*this); }
+    Array const&array() const
+    { return std::get<Array>(*this); }
+    Object const&object() const
+    { return std::get<Object>(*this); }
 
     class Doc {
     public:

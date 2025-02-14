@@ -3,6 +3,7 @@
 #include <zinc/openai.hpp>
 #include <zinc/log.hpp>
 
+#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -17,28 +18,37 @@ std::string perform_replacements(std::string_view message) {
     std::stringstream new_docs;
     static size_t nrefs = 0;
     size_t last_off = 0;
-    for (auto && [off, match] : zinc::find_all_of(message, zinc::span<string_view>({"$(", "`", "http"}))) {
+    for (auto && [off, match] : zinc::find_all_of(message, zinc::span<string_view>({"$(", /*"`", */"http"}))) {
         //decltype(message)::iterator tail;
         size_t tailpos;
         switch(message[off]) {
         case '$': // $(
+            if (message.size() - off <= 4) continue;
             tailpos = message.find(')', off);
             if (tailpos == std::string_view::npos) continue;
             break;
         case '`': // `
+            if (message.size() - off <= 2) continue;
             tailpos = message.find('`', off);
             if (tailpos == std::string_view::npos) continue;
             break;
         case 'h': // http
+            if (message.size() - off <= 8) {
+                continue;
+            }
             if (message.substr(off,7) == "http://" || message.substr(off,8) == "https://") {
                 auto [suboff, _] = zinc::find_first_of(message.substr(off), zinc::span<std::string_view>({" ","\t","\n",",",";","!","'","\""}));
-                tailpos = off + suboff;
-                switch(message[tailpos-1]) {
-                case '.':
-                case '?':
-                    -- tailpos;
+                if (suboff == std::string_view::npos) {
+                    tailpos = message.size();
+                } else {
+                    tailpos = off + suboff;
+                    switch(message[tailpos-1]) {
+                    case '.':
+                    case '?':
+                        -- tailpos;
+                    }
+                    break;
                 }
-                break;
             } else {
                 continue;
             }
@@ -58,8 +68,9 @@ std::string perform_replacements(std::string_view message) {
                 // file
                 off += 1;
                 std::string_view fn = message.substr(off, tailpos - off);
+                std::cerr << nrefs << ": " << fn << std::endl;
                 ++ tailpos;
-                new_docs << nrefs << ": **" << fn << "**\n";
+                new_docs << nrefs << ": " << fn << "\n\n**" << fn << "**\n";
                 new_docs << "```\n";
                 std::ifstream f{std::filesystem::path(fn)};
                 new_docs << f.rdbuf();
@@ -67,6 +78,7 @@ std::string perform_replacements(std::string_view message) {
             } else {
                 // commands
                 std::string_view cmds = message.substr(off, tailpos - off);
+                std::cerr << nrefs << ": $ " << cmds << std::endl;
                 ++ tailpos;
                 new_docs << nrefs << ":\n";
                 new_docs << "```\n";
@@ -95,10 +107,16 @@ std::string perform_replacements(std::string_view message) {
         case 'h': // http
         {
             std::string_view url = message.substr(off, tailpos - off);
+            std::cerr << nrefs << ": " << url << std::endl;
             new_docs << nrefs << ": **" << url << "**\n";
             new_docs << "```\n";
-            for (auto && line : zinc::HTTP::request_lines("GET", url)) {
-                new_docs << line << "\n";
+            try {
+                for (auto && line : zinc::HTTP::request_lines("GET", url)) {
+                    new_docs << line << "\n";
+                }
+            } catch (std::runtime_error const& er) {
+                new_docs << er.what();
+                std::cerr << er.what() << std::endl;
             }
             new_docs << "```\n";
             break;
@@ -118,7 +136,7 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
     std::cerr << "The following will be replaced:" << std::endl;
     std::cerr << "- $(<pathname) will read a file" << std::endl;
     std::cerr << "- $(commands) will capture output from commands" << std::endl;
-    std::cerr << "- `commands` is the same as $(commands)" << std::endl;
+    std::cerr << "- `commands` is _not_ interpreted due to other use in llms" << std::endl;
     std::cerr << "- http://url will fetch a url" << std::endl;
     std::cerr << "- https://url will also fetch a url" << std::endl;
     std::cerr << "Presently no escaping is processed, so be careful not to end commands early." << std::endl;
@@ -138,7 +156,7 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
             //"https://chutes-deepseek-ai-deepseek-r1.chutes.ai", //url
             //"deepseek-ai/DeepSeek-R1", //model
             //"cpk_f6d4acdfdd9e4dca97cc1068ee548e5d.741ff3f12d3e5331b8ac0e1140401452.isBWVv07rRtrxTZVvXi0Wlt7asipainR", //key
-            zinc::span<KeyJSONPair>({{"max_completion_tokens", 4096}})
+            zinc::span<KeyJSONPair>({{"max_completion_tokens", 512}})
     );
 
     //vector<OpenAI::RoleContentPair> messages;
@@ -185,21 +203,50 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
         msg.clear();
 
         cerr << endl << "assistant: " << flush;
+
+        // Install signal handler for SIGINT
+        static sig_atomic_t SIGINT_RAISED;
+        SIGINT_RAISED = false;
+        std::signal(SIGINT, [](int){
+            std::signal(SIGINT, SIG_DFL);
+            SIGINT_RAISED = true;
+        });
+
         do {
+            ssize_t chunk_start = (ssize_t)msg.size();
+            std::string finish_reason;
+            std::string finish_data;
+            retry_assistant = true;
             try {
                 //for (auto&& part : client.chat(messages)) {
-                std::string finish_reason;
                 for (auto&& part : client.complete(prompt + msg)) {
                     msg += part;
                     cout << part << flush;
-                    try {
-                        finish_reason = part.data["finish_reason"].string();
-                    } catch (std::out_of_range const&) {}
+                    auto fr = part.data.dicty("finish_reason");
+                    finish_data = part.data.encode();
+                    if (fr.truthy()) {
+                        finish_reason = fr.string();
+                        if (finish_reason == "stop") {
+                            retry_assistant = false;
+                        } else {
+                            cerr << "<...finish_reason=" << finish_reason << "...>" << flush;
+                        }
+                    }
+                    if (SIGINT_RAISED) {
+                        throw std::runtime_error("SIGINT");
+                    }
+                    if (finish_reason == "" && (ssize_t)msg.size() == chunk_start) {
+                        retry_assistant = false;
+                        throw std::runtime_error(finish_data);
+                    }
                 }
-                retry_assistant = finish_reason == "stop" ? false : true;
             } catch (std::runtime_error const& e) {
-                retry_assistant = true;
-                cerr << "<..." << e.what() << "...reconnecting...>" << flush;
+                cerr << "<..." << e.what();
+                finish_reason = std::string("runtime_error ") + e.what();
+                if (!SIGINT_RAISED) {
+                    cerr << "...reconnecting";
+                }
+                cerr << "...>" << flush;
             /*} catch (std::system_error const& e) {
                 if (e.code() == std::errc::resource_unavailable_try_again) {
                     retry_assistant = true;
@@ -211,9 +258,12 @@ int main([[maybe_unused]]int argc, [[maybe_unused]]char **argv) {
 
             Log::log(zinc::span<StringViewPair>({
                 {"role", "assistant"},
-                {"content", msg},
+                {"content", std::string_view(msg.begin() + chunk_start, msg.end())},
+                {"finish_reason", finish_reason.empty() ? finish_data : finish_reason},
             }));
-        } while (retry_assistant);
+        } while (retry_assistant && !SIGINT_RAISED);
+        // Restore the default signal handler
+        std::signal(SIGINT, SIG_DFL);
 
         messages.emplace_back(HodgePodge::Message{.role="assistant", .content=move(msg)});
         msg.clear();
