@@ -1,9 +1,11 @@
 #include <zinc/configuration.hpp>
 
 #include <filesystem>
+#include <iostream>
 #include <stdexcept>
 #include <thread>
 #include <unordered_set>
+#include <boost/interprocess/sync/file_lock.hpp>
 #include <boost/iostreams/stream.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ini_parser.hpp>
@@ -11,6 +13,7 @@
 
 namespace fs = std::filesystem;
 
+// specialize ini_parser write_keys so as to use git-style spacing
 namespace boost { namespace property_tree { namespace ini_parser {
 namespace detail {
 template <>
@@ -110,11 +113,22 @@ public:
         if (!user_wide) {
             auto path_user = Configuration::path_user(subpath);
             if (fs::exists(path_user)) {
-                dflts_.emplace_back(std::string(path_user), decltype(ptreep_.second)());
-                boost::property_tree::ini_parser::read_ini(dflts_[0].first, dflts_[0].second);
+                static thread_local std::string path_user_str(path_user);
+                dflt_locks_.emplace_back(path_user_str.c_str());
+                if (!dflt_locks_.back().try_lock_shared()) {
+                    std::cerr << "Waiting for another process to finish with " << path_user << " ..." << std::endl;
+                    dflt_locks_.back().lock_shared();
+                }
+                dflts_.emplace_back(path_user_str, decltype(ptreep_.second)());
+                boost::property_tree::ini_parser::read_ini(dflts_.back().first, dflts_.back().second);
             }
         }
         if (fs::exists(ptreep_.first)) {
+            ptree_lock_ = std::move(boost::interprocess::file_lock(ptreep_.first.c_str()));
+            if (!ptree_lock_.try_lock()) {
+                std::cerr << "Waiting for another process to finish with " << ptreep_.first << " ..." << std::endl;
+                ptree_lock_.lock();
+            }
             boost::property_tree::ini_parser::read_ini(ptreep_.first, ptreep_.second);
         }
     }
@@ -286,7 +300,9 @@ private:
     //boost::property_tree::ptree& ptree_() { return ptreep_.second };
 
     boost::property_tree::ptree::value_type ptreep_;
+    boost::interprocess::file_lock ptree_lock_;
     std::vector<boost::property_tree::ptree::value_type> dflts_;
+    std::vector<boost::interprocess::file_lock> dflt_locks_;
     //std::vector<boost::property_tree::ptree::value_type*> chks_paths_;
     //std::unordered_map<boost::property_tree::ptree*node, std::pair<size_t, size_t>> chks_;
     std::mutex mtx;
