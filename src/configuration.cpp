@@ -44,6 +44,8 @@ namespace zinc {
 
 namespace {
 
+static const size_t EMPTY_HASH = std::hash<std::string_view>()({});
+
 fs::path const & config_dir_user()
 {
     static struct ConfigDirUser
@@ -122,66 +124,36 @@ public:
         bool possibly_returned_to_normal;
         do {
             possibly_returned_to_normal = true;
-            for (auto it = created_.begin(); it != created_.end();) {
+            for (auto it = accessed_.begin(); it != accessed_.end();) {
                 auto & [pt, hash] = *it;
                 if (std::hash<std::string_view>()(pt->data()) != hash) {
                     changed = true;
-                    it = created_.erase(it);
+                    it = accessed_.erase(it);
                 } else {
                     if (pt->empty()) {
-                        it = created_.erase(it);
+                        it = accessed_.erase(it);
                         possibly_returned_to_normal = false;
                     }
                 }
             }
         } while (!possibly_returned_to_normal);
         assert(possibly_returned_to_normal == true);
-        assert(created_.empty() || changed); // things should only dangle if they have dangling children or are changed; so recursively the former implies the latter
-        /*
-        for (auto & [ptr, [hash, path_offset]] : chks_) {
-            if (std::hash<std::string_view>()(ptr->data()) == hash) {
-                // the new value was not set so remove it
-                auto * path_begin = &chks_paths_[path_offset];
-                for (auto * path_end = path_begin; path_end->second != ptr; ++ path_end);
-                auto * path_it = path_end;
-                bug with a second value being a subpath of a first
-                the first leaves ancestor paths in
-                one approach is to detect newness earlier
-                another is to loop over all created paths,
-                removing empty ones until there are none
-                while (path_it->second.empty()) {
-                    auto & key = path_it->first;
-                    -- path_it;
-                    path_it->second.erase(key);
-                }
-                do {
-                    if (path_it->second.empty()) {
-                    } else {
-                        break;
-                    }
-                } while (p != path_begin;
-                do {
-                    size_t sz = *(size_t*)(void*)data;
-                    data += sizeof(sz);
-                    std::string_view key{data, data + sz};
-                    data += sz;
-
-                }
-            } else {
-                changed = true;
-            }
-        }
-        */
+        assert(accessed_.empty() || changed); // things should only dangle if they have dangling children or are changed; so recursively the former implies the latter
         if (changed) {
             boost::property_tree::ini_parser::write_ini(ptreep_.first, ptreep_.second);
         }
     }
 
     std::string& operator[](std::span<std::string_view const> locator) {
-        return get_value(locator).data();
-        //auto path = git_to_ptree_path(locator);
-        //dirty_ = true;
-        //return ptree_.get_child(path).data();
+        auto & value = get_value(locator);
+        auto it = accessed_.find(&value);
+        if (accessed_.end() == it) {
+            // note: the approach does not yet use defaults if a section is also a value
+            // because the creating walk prevents the found flag from falling later in middle sections, in multiple calls to the get() functions
+            accessed_[&value] = std::hash<std::string_view>()(value.data());
+        }
+
+        return value.data();
     }
 
     zinc::generator<std::string_view> sections(std::span<std::string_view const> locator) {
@@ -220,21 +192,16 @@ public:
 private:
     boost::property_tree::ptree & get_value(std::span<std::string_view const> locator) {
         bool found;
-        //size_t chks_offset;
-        auto * value = get(ptreep_, locator, false, true/*&chks_offset*/, found);
+        auto * value = get(ptreep_, locator, false, true, found);
         if (!found) {
             bool dflt_found = false;
             auto * dflt = value;
             for (auto it = dflts_.begin(); !dflt_found && it != dflts_.end(); ++ it) {
-                dflt = get(*it, locator, false, false/*nullptr*/, dflt_found);
+                dflt = get(*it, locator, false, false, dflt_found);
             }
             if (dflt_found) {
                 value->data() = dflt->data();
             }
-            /*
-            assert(chks_.find(value) == chks_.end());
-            chks_.emplace(value, {std::hash<std::string_view>()(value->data()), chks_offset});
-            */
         }
         return *value;
     }
@@ -302,22 +269,14 @@ private:
         if (false == found) {
             assert(create);
             std::lock_guard<std::mutex> lk(mtx);
-            /*
-            *create_and_chk = chks_paths_.size();
-            chks_paths_.reserve(locator.end() - fragment_it + 1);
-            chks_paths_.push_back(key_pt);
-            //logic errors expected
-            */
             while (true) {
                 key_pt = &*key_pt->second.push_back(std::make_pair(fragment, boost::property_tree::ptree()));
-                //chks_paths_.push_back(key_pt);
 
-                // note: this approach does not use defaults if a section is also a value.
-                created_[&key_pt->second] = std::hash<std::string_view>()(key_pt->second.data());
                 if (locator.end() == fragment_it) {
                     break;
                 }
                 fragment = *fragment_it;
+                ++ fragment_it;
             }
         }
         fragment.clear();
@@ -331,7 +290,7 @@ private:
     //std::vector<boost::property_tree::ptree::value_type*> chks_paths_;
     //std::unordered_map<boost::property_tree::ptree*node, std::pair<size_t, size_t>> chks_;
     std::mutex mtx;
-    std::unordered_map<boost::property_tree::ptree*, size_t> created_;
+    std::unordered_map<boost::property_tree::ptree*, size_t> accessed_;
         /*
          * the idea is to store every created path with a hash of its value.
          * on destruction, all paths are iterated, and ones that both match their hash and are empty are removed.

@@ -189,4 +189,52 @@ BOOST_AUTO_TEST_CASE(do_not_write_unmodified_parameters)
     BOOST_CHECK(content.find("key = value_from_user") == std::string::npos);
 }
 
+BOOST_AUTO_TEST_CASE(locator_length_1)
+{
+    TemporaryDirectory temp_dir;
+    fs::current_path(temp_dir.path());
+    zinc::Configuration::init();
+
+    {
+        zinc::Configuration config(zinc::span<std::string_view>({"test.ini"}));
+        config[zinc::span<std::string_view>({"section"})] = "section_value";
+    }
+
+    std::ifstream config_file(std::string(zinc::Configuration::path_local(zinc::span<std::string_view>({"test.ini"}))));
+    std::string content((std::istreambuf_iterator<char>(config_file)), std::istreambuf_iterator<char>());
+    BOOST_CHECK(content.find("section = section_value") != std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(locator_length_2)
+{
+    TemporaryDirectory temp_dir;
+    fs::current_path(temp_dir.path());
+    zinc::Configuration::init();
+
+    {
+        zinc::Configuration config(zinc::span<std::string_view>({"test.ini"}));
+        config[zinc::span<std::string_view>({"section", "subsection"})] = "subsection_value";
+    }
+
+    std::ifstream config_file(std::string(zinc::Configuration::path_local(zinc::span<std::string_view>({"test.ini"}))));
+    std::string content((std::istreambuf_iterator<char>(config_file)), std::istreambuf_iterator<char>());
+    BOOST_CHECK(content.find("[section]\n\tsubsection = subsection_value") != std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(locator_length_greater_than_2)
+{
+    TemporaryDirectory temp_dir;
+    fs::current_path(temp_dir.path());
+    zinc::Configuration::init();
+
+    {
+        zinc::Configuration config(zinc::span<std::string_view>({"test.ini"}));
+        config[zinc::span<std::string_view>({"section", "subsection", "subsubsection"})] = "subsubsection_value";
+    }
+
+    std::ifstream config_file(std::string(zinc::Configuration::path_local(zinc::span<std::string_view>({"test.ini"}))));
+    std::string content((std::istreambuf_iterator<char>(config_file)), std::istreambuf_iterator<char>());
+    BOOST_CHECK(content.find("[section \"subsection\"]\n\tsubsubsection = subsubsection_value") != std::string::npos);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
