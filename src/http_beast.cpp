@@ -219,7 +219,9 @@ struct LoanedConnection
             if (!res_parser.get().keep_alive()) {
                 return;
             }
-            while (!res_parser.is_done() && buffer.size()) {
+            if (!res_parser.is_done() && buffer.size()) {
+                // we try draining the buffer in case we are near the end
+                // but if multiple iterations are needed it could cause a hang and should be done in a background thread.
                 http::read_some(*stream, buffer, res_parser);
             }
             if (!res_parser.is_done()) {
@@ -230,7 +232,7 @@ struct LoanedConnection
             std::lock_guard<std::mutex> lock(BackendState::instance().mtx);
             auto it = BackendState::instance().connection_cache.find(key);
             if (it != BackendState::instance().connection_cache.end()) {
-                // because we know this one is connected, erasing the other is reasonable
+                // because we know this one is connected, erasing the other is reasonable, but it could be useful to keep them both
                 BackendState::instance().connection_cache.erase(it);
             }
             it = BackendState::instance().connection_cache.emplace(key,std::move(static_cast<StreamType&>(*this->stream))).first;
