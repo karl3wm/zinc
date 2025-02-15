@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <thread>
 #include <unordered_set>
+#include <boost/iostreams/stream.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ini_parser.hpp>
 //#include <regex>
@@ -148,16 +149,33 @@ public:
     }
 
     std::string& operator[](std::span<std::string_view const> locator) {
-        return get(locator).data();
+        return get_value(locator).data();
         //auto path = git_to_ptree_path(locator);
         //dirty_ = true;
         //return ptree_.get_child(path).data();
     }
 
     zinc::generator<std::string_view> sections(std::span<std::string_view const> locator) {
-        for (auto & [key, pt] : get_below(locator)) {
-            if (pt.size()) {
-                co_yield key;
+        if (locator.size() == 1) {
+            static thread_local boost::iostreams::stream<boost::iostreams::array_source> iss;
+            static std::string subsection;
+            for (auto & [key, pt] : get_below({})) {
+                if (
+                        key.starts_with(locator[0]) &&
+                        key.size() >= locator.size() + 3 &&
+                        std::string_view(key.begin() + (ssize_t)locator.size(), key.begin() + (ssize_t)locator.size() + 2) == " \"" &&
+                        key[key.size() - 1] == '"'
+                ) {
+                    iss.open(&*key.begin() + (ssize_t)(locator.size()) + 1, &*key.end());
+                    iss >> std::quoted(subsection);
+                    co_yield subsection;
+                }
+            }
+        } else {
+            for (auto & [key, pt] : get_below(locator)) {
+                if (pt.size()) {
+                    co_yield key;
+                }
             }
         }
     }
@@ -171,15 +189,15 @@ public:
     }
 
 private:
-    boost::property_tree::ptree & get(std::span<std::string_view const> locator) {
+    boost::property_tree::ptree & get_value(std::span<std::string_view const> locator) {
         bool found;
         //size_t chks_offset;
-        auto * value = get(ptreep_, locator, true/*&chks_offset*/, found);
+        auto * value = get(ptreep_, locator, false, true/*&chks_offset*/, found);
         if (!found) {
             bool dflt_found = false;
             auto * dflt = value;
             for (auto it = dflts_.begin(); !dflt_found && it != dflts_.end(); ++ it) {
-                dflt = get(*it, locator, false/*nullptr*/, dflt_found);
+                dflt = get(*it, locator, false, false/*nullptr*/, dflt_found);
             }
             if (dflt_found) {
                 value->data() = dflt->data();
@@ -193,7 +211,7 @@ private:
     }
     zinc::generator<boost::property_tree::ptree::value_type&> get_below(std::span<std::string_view const> locator) {
         bool found;
-        auto * value = get(ptreep_, locator, false, found);
+        auto * value = get(ptreep_, locator, true, false, found);
         std::unordered_set<size_t> found_keys;
         if (found) {
             for (auto & val : *value) {
@@ -202,7 +220,7 @@ private:
             }
         }
         for (auto & dflt : dflts_) {
-            value = get(dflt, locator, false, found);
+            value = get(dflt, locator, true, false, found);
             if (found) {
                 for (auto & val : *value) {
                     auto [_, inserted] = found_keys.insert(std::hash<std::string_view>()(val.first));
@@ -213,22 +231,23 @@ private:
             }
         }
     }
-    boost::property_tree::ptree * get(boost::property_tree::ptree::value_type & ptp, std::span<std::string_view const> locator, bool create, bool & found) {
-        static thread_local std::stringstream ss;
+    boost::property_tree::ptree * get(boost::property_tree::ptree::value_type & ptp, std::span<std::string_view const> locator, bool is_section, bool create, bool & found) {
         if (locator.empty()) {
             found = true;
             return &ptp.second;
         }
-        ss.clear();
-        ss << locator[0];
-        if (locator.size() >= 2) {
+        static thread_local std::stringstream ss;
+        static thread_local std::string fragment; // because ptree uses std::string for find()
+        if (locator.size() >= (is_section ? 2 : 3)) {
+            ss.clear();
+            ss << locator[0];
             ss << ' ' << std::quoted(locator[1]);
+            fragment = ss.view();
             locator = {locator.begin() + 2, locator.end()};
         } else {
-            locator = {};
+            fragment = locator[0];
+            locator = {locator.begin() + 1, locator.end()};
         }
-        static thread_local std::string fragment; // because ptree uses std::string for find()
-        fragment = ss.view();
         auto* key_pt = &ptp;
         auto pt_it = key_pt->second.find(fragment);
         auto fragment_it = locator.begin();
