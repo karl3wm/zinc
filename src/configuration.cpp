@@ -11,6 +11,35 @@
 
 namespace fs = std::filesystem;
 
+namespace boost { namespace property_tree { namespace ini_parser {
+namespace detail {
+template <>
+void write_keys<ptree>(std::basic_ostream<ptree::key_type::value_type> & stream, const ptree& pt, bool throw_on_children)
+{
+    typedef typename ptree::key_type::value_type Ch;
+    for (typename ptree::const_iterator it = pt.begin(), end = pt.end();
+         it != end; ++it)
+    {
+        if (!it->second.empty()) {
+            if (throw_on_children) {
+                BOOST_PROPERTY_TREE_THROW(ini_parser_error(
+                    "ptree is too deep", "", 0));
+            }
+            continue;
+        }
+        if (throw_on_children) {
+            // indent innermost keys
+            stream << Ch('\t');
+        }
+        stream << it->first << " = "
+            << it->second.template get_value<
+                std::basic_string<Ch> >()
+            << Ch('\n');
+    }
+}
+}
+} } }
+
 namespace zinc {
 
 namespace {
