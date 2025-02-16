@@ -41,12 +41,14 @@ extern "C" {
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <iostream> //dbg
 #include <span>
 #include <stdexcept>
 #include <string_view>
 #include <vector>
 
 #include <boost/container/devector.hpp>
+#include <boost/container/static_vector.hpp>
 
 unsigned long enum XDFLAGS {
     NEED_MINIMAL = (1 << 0),
@@ -330,6 +332,32 @@ public:
         return xdf->rchg[line];
     }
 
+    void trace_state(std::string_view context) const
+    {
+        std::cerr << "Tracing state for context: " << context << std::endl;
+        std::cerr << "recs:" << std::endl;
+        for (size_t i = 0; i < recs.size(); ++i) {
+            std::cerr << "  rec[" << i << "]: ";
+            if (recs[i]) {
+                std::cerr << std::string_view(recs[i]->ptr, (size_t)recs[i]->size) << std::endl;
+            } else {
+                std::cerr << recs[i] << std::endl;
+            }
+        }
+        std::cerr << "rindex:" << std::endl;
+        for (size_t i = 0; i < rindex.size(); ++i) {
+            std::cerr << "  rindex[" << i << "]: " << rindex[i] << std::endl;
+        }
+        std::cerr << "rchg:" << std::endl;
+        for (auto *p = xdf->rchg; p < rchg.end(); ++p) {
+            std::cerr << "  rchg[" << (p-xdf->rchg) << "]: " << static_cast<int>(*p) << std::endl;
+        }
+        std::cerr << "nrec: " << xdf->nrec << ", nreff: " << xdf->nreff << std::endl;
+        std::cerr << "dstart: " << xdf->dstart << ", dend: " << xdf->dend << std::endl;
+        std::cerr << "----------------------------------------" << std::endl;
+    }
+
+
 private:
     void cha_consume_(long items)
     {
@@ -451,7 +479,7 @@ public:
             extend_env(new_line);
             if ((ssize_t)dynxdfs[1].size() >= window_size) {
                 do_diff();                
-                for (auto && diff : generate_diffs_for(l1, l2)) {
+                for (auto && diff : get_diffs_for(l1, l2)) {
                     co_yield diff;
                 }
                 // if l1 or l2 overflows this likely means that file 1 was exhausted while there were still matching values in file 2 for some reason. maybe they weren't passed through nreff?
@@ -467,8 +495,11 @@ public:
         }
         do_diff();
 
+        dynxdfs[0].trace_state("File 1 after final do_diff");
+        dynxdfs[1].trace_state("File 2 after final do_diff");
+
         while (l1 < dynxdfs[0].size() || l2 < dynxdfs[1].size()) {
-            for (auto && diff : generate_diffs_for(l1, l2)) {
+            for (auto && diff : get_diffs_for(l1, l2)) {
                 co_yield diff;
             }
         }
@@ -478,32 +509,34 @@ public:
         xdl_free_classifier(&cf);
     }
 private:
-    zinc::generator<Diff> generate_diffs_for(size_t & l1, size_t & l2)
+    boost::container::static_vector<Diff,2> get_diffs_for(size_t & l1, size_t & l2)
     {
+        boost::container::static_vector<Diff,2> diffs;
         bool c1 = (l1 < dynxdfs[0].size()) ? dynxdfs[0].chg(l1) : 0;
         bool c2 = (l2 < dynxdfs[1].size()) ? dynxdfs[1].chg(l2) : 0;
         switch ((c1 << 1) | c2) {
         case (1<<1)|1:
-            co_yield Diff(DELETE, xe.xdf1);
+            diffs.emplace_back(DELETE, xe.xdf1, l1);
             ++ l1;
-            co_yield Diff(INSERT, xe.xdf2);
+            diffs.emplace_back(INSERT, xe.xdf2, l2);
             ++ l2;
             break;
         case (1<<1)|0:
-            co_yield Diff(DELETE, xe.xdf1);
+            diffs.emplace_back(DELETE, xe.xdf1, l1);
             ++ l1;
             break;
         case (0<<1)|1:
-            co_yield Diff(INSERT, xe.xdf2);
+            diffs.emplace_back(INSERT, xe.xdf2, l2);
             ++ l2;
             break;
         case (0<<1)|0:
-            assert(xdfile_line(xe.xdf1,0) == xdfile_line(xe.xdf2,0));
-            co_yield Diff(EQUAL, xe.xdf1);
+            assert(xdfile_line(xe.xdf1,l1) == xdfile_line(xe.xdf2,l2));
+            diffs.emplace_back(EQUAL, xe.xdf1, l1);
             ++ l1;
             ++ l2;
             break;
         }
+        return diffs;
     }
     //void extend_env(unsigned int lines_estimate, std::span<char> data)
     //{
