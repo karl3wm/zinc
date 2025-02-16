@@ -38,11 +38,12 @@ extern "C" {
 #pragma GCC diagnostic pop
 }
 
+#include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <span>
 #include <stdexcept>
 #include <string_view>
-#include <valarray>
 #include <vector>
 
 #include <boost/container/devector.hpp>
@@ -166,6 +167,12 @@ public:
         auto & rec = *recs[line];
         return {rec.ptr, (size_t)rec.size};
     }
+    void shift_line_ptrs(ptrdiff_t offset)
+    {
+        for (auto * rec : recs) {
+            rec->ptr += offset;
+        }
+    }
     void extend_pre(xpparam_t * xpp, long line_estimate, /*std::span<char>*/ std::string_view data)
     {
         /* xdl_prepare_ctx */
@@ -209,7 +216,7 @@ public:
         rchg.resize_back((size_t)nrec + 2);
 	    if ((XDF_DIFF_ALG(xpp->flags) != XDF_PATIENCE_DIFF) &&
     	    (XDF_DIFF_ALG(xpp->flags) != XDF_HISTOGRAM_DIFF)) {
-            rindex.resize((size_t)nrec + 1);
+            rindex.resize_back((size_t)nrec + 1);
             ha.resize_back((size_t)nrec + 1);
     	}
 
@@ -218,7 +225,7 @@ public:
         xdf->hbits = hbits;
         xdf->rhash = rhash.data();
         xdf->rchg = rchg.begin() + 1;
-        xdf->rindex = &rindex[0];
+        xdf->rindex = rindex.begin();
         xdf->ha = ha.begin();
         xdf->dend = nrec - 1;
     }
@@ -297,14 +304,19 @@ public:
             }
         }
         nreff -= nreff_off;
-        //rindex[std::slice((size_t)nreff_off, (size_t)nreff, 1)] -= lines;
-        //rindex[std::slice(0, (size_t)nreff, 1)] = rindex[std::slice((size_t)nreff_off, (size_t)nreff, 1)];
-        //rindex[std::slice(0, (size_t)nreff, 1)] -= lines;
-        rindex_tmp = rindex[std::slice((size_t)nreff_off, (size_t)nreff, 1)];
-        rindex_tmp -= lines;
-        rindex_tmp.resize(rindex.size());
-        std::swap(rindex, rindex_tmp);
-        ha.erase(ha.begin(), ha.begin() + nreff_off);
+        // vector would make more sense than valarray for rindex. modern compilers vectorize simple arithmetic in loops.
+        //if (rindex_tmp.size() < (size_t)nreff) {
+        //    rindex_tmp.resize((size_t)nreff);
+        //}
+        //rindex_tmp = rindex[std::slice((size_t)nreff_off, (size_t)nreff, 1)];
+        //rindex_tmp -= lines;
+        //rindex[std::slice(0, (size_t)nreff, 1)] = rindex_tmp;
+        rindex.erase(rindex.begin(), rindex.begin() + nreff_off);
+        // uhh does this get vectorized? or is it too in-place?
+        for (size_t i = 0; i < (size_t)nreff; ++ i) {
+            rindex[i] -= lines;
+        }
+        xdf->rindex = rindex.begin();
         xdf->ha = ha.begin();
         xdf->nreff = nreff;
     }
@@ -315,7 +327,7 @@ public:
     }
     char chg(size_t line)
     {
-        return rchg[line];
+        return xdf->rchg[line];
     }
 
 private:
@@ -369,8 +381,7 @@ private:
     std::vector<xrecord_t*> rhash; // reverse hash lookup, constant size
     boost::container::devector<xrecord_t*> recs; // canonical line list, points into xdf->rcha
     boost::container::devector<char> rchg; // canonical line change list
-    std::valarray<long> rindex;
-    std::valarray<long> rindex_tmp;
+    boost::container::devector<long> rindex;
     boost::container::devector<unsigned long> ha;
 
     long mlim;
@@ -427,6 +438,13 @@ public:
                     (ssize_t)std::sqrt(dynxdfs[0].line_estimate()) + 1,
                     (ssize_t)7
             });
+        }
+        auto & f0 = dynxdfs[0];
+        if (f0.size()) {
+            window.reserve((size_t)(
+                        (double)(f0[f0.size() - 1].end() - f0[0].begin()) /
+                            (double)f0.size() * (double)window_size * 2
+            ));
         }
         size_t l1 = 0, l2 = 0;
         for (auto && new_line : against) {
@@ -497,9 +515,13 @@ private:
         //size_t mark_l = dynxdfs[1].size();
         
         assert(line.find('\n') == std::string_view::npos);
-        //bug here. window gets resized invalidating the memory reference that xdiff's linked line list has.
+        auto window_begin = window.begin();
         window.insert(window.end(), line.begin(), line.end());
         window.push_back('\n');
+        if (window.begin() != window_begin) {
+            dynxdfs[1].shift_line_ptrs(window.begin() - window_begin);
+            window_begin = window.begin();
+        }
 
         dynxdfs[1].extend_pre(
                 &xp,
