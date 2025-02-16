@@ -737,6 +737,10 @@ public:
             a.push_back('\n');
         }
         std::vector<Diff> result;
+
+        static thread_local std::array<char,1024*16> storage;
+        auto storage_end = storage.begin();
+
         AsymmetricStreamingXDiff xdiff(a);
         auto b = [&]()->zinc::generator<std::string_view> {
             std::string b;
@@ -749,7 +753,20 @@ public:
             }
         };
         for (auto && diff : xdiff.diff(b(), (ssize_t)b_.size())) {
-            result.emplace_back(std::move(diff));
+
+            std::copy(diff.text.begin(), diff.text.end(), storage_end);
+            std::string_view text(storage_end, storage_end + diff.text.size());
+            storage_end += diff.text.size();
+
+            if (!result.size()) {
+                result.emplace_back(diff.type, text);
+            } else if (result.back().type == diff.type) {
+                // reunify lines into a string
+                assert(result.back().text.end() == text.begin());
+                result.back() = Diff(diff.type, std::string_view(result.back().text.begin(), text.end()));
+            } else {
+                result.emplace_back(diff.type, text);
+            }
         }
         return result;
     }
