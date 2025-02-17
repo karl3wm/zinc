@@ -231,44 +231,48 @@ public:
         xdf->ha = ha.begin();
         xdf->dend = nrec - 1;
     }
-    void extend_post(bool compare_nreff)
+    void extend_post(xpparam_t * xpp, bool compare_nreff)
     {
-        /* ~~ xld_optimize_ctxs */
-        unsigned int start = xdf->nreff ? (unsigned int)xdf->rindex[xdf->nreff - 1] + 1 : 0;
+	    if ((XDF_DIFF_ALG(xpp->flags) != XDF_PATIENCE_DIFF) &&
+            (XDF_DIFF_ALG(xpp->flags) != XDF_HISTOGRAM_DIFF)) {
 
-        /* xdl_cleanup_records */
-        long i, nm, nreff;
-        xrecord_t **recs;
-        xdlclass_t *rcrec;
+            /* ~~ xdl_optimize_ctxs */
+            unsigned int start = xdf->nreff ? (unsigned int)xdf->rindex[xdf->nreff - 1] + 1 : 0;
+
+            /* xdl_cleanup_records */
+            long i, nm, nreff;
+            xrecord_t **recs;
+            xdlclass_t *rcrec;
 
 
-        if (!compare_nreff) {
-            for (nreff = xdf->nreff, i = start, recs = &xdf->recs[start];
-                i <= xdf->dend; i++, recs++, nreff++) {
-    			xdf->rindex[nreff] = i;
-    			xdf->ha[nreff] = (*recs)->ha;
-            }
-        } else {
-            dis.resize_back((size_t)(xdf->dend + 1));
-
-            for (i = start, recs = &xdf->recs[start]; i <= xdf->dend; i++, recs++) {
-                rcrec = cf->rcrecs[(*recs)->ha];
-                nm = rcrec ? (pass == 1 ? rcrec->len2 : rcrec->len1) : 0;
-                dis[(size_t)i] = (nm == 0) ? 0: (nm >= mlim) ? 2: 1;
-            }
-
-            for (nreff = xdf->nreff, i = start, recs = &xdf->recs[start];
-                 i <= xdf->dend; i++, recs++) {
-    		    if (dis[(size_t)i] == 1 ||
-        		    (dis[(size_t)i] == 2 && !xdl_clean_mmatch(dis.data(), i, xdf->dstart, xdf->dend))) {
+            if (!compare_nreff) {
+                for (nreff = xdf->nreff, i = start, recs = &xdf->recs[start];
+                    i <= xdf->dend; i++, recs++, nreff++) {
         			xdf->rindex[nreff] = i;
         			xdf->ha[nreff] = (*recs)->ha;
-        			nreff++;
-        		} else
-        			xdf->rchg[i] = 1;
+                }
+            } else {
+                dis.resize_back((size_t)(xdf->dend + 1));
+
+                for (i = start, recs = &xdf->recs[start]; i <= xdf->dend; i++, recs++) {
+                    rcrec = cf->rcrecs[(*recs)->ha];
+                    nm = rcrec ? (pass == 1 ? rcrec->len2 : rcrec->len1) : 0;
+                    dis[(size_t)i] = (nm == 0) ? 0: (nm >= mlim) ? 2: 1;
+                }
+
+                for (nreff = xdf->nreff, i = start, recs = &xdf->recs[start];
+                     i <= xdf->dend; i++, recs++) {
+                    if (dis[(size_t)i] == 1 ||
+                       (dis[(size_t)i] == 2 && !xdl_clean_mmatch(dis.data(), i, xdf->dstart, xdf->dend))) {
+                        xdf->rindex[nreff] = i;
+                        xdf->ha[nreff] = (*recs)->ha;
+                        nreff++;
+                    } else
+                        xdf->rchg[i] = 1;
+                }
             }
+            xdf->nreff = nreff;
         }
-        xdf->nreff = nreff;
     }
     void consume(long lines = 1)
     {
@@ -350,7 +354,6 @@ public:
         std::cerr << "dstart: " << xdf->dstart << ", dend: " << xdf->dend << std::endl;
         std::cerr << "----------------------------------------" << std::endl;
     }
-
 
 private:
     void cha_consume_(long items)
@@ -450,7 +453,10 @@ public:
 
         /* ... */
         dynxdfs[0].extend_pre(&xp, line_estimate, old_file);
-        dynxdfs[0].extend_post(false);
+        dynxdfs[0].extend_post(&xp, false);
+
+        dynxdfs[1].extend_pre(&xp, 0, {});
+        dynxdfs[1].extend_post(&xp, false);
     }
     zinc::generator<Diff> diff(zinc::generator<std::string_view> against, ssize_t window_size = -1)
     {
@@ -473,8 +479,6 @@ public:
             extend_env(new_line);
             if ((ssize_t)dynxdfs[1].size() >= window_size) {
                 do_diff();                
-                dynxdfs[0].trace_state("File 1 after a do_diff");
-                dynxdfs[1].trace_state("File 2 after a do_diff");
                 co_yield get_diff_for(l1, l2);
                 // if l1 or l2 overflows this likely means that file 1 was exhausted while there were still matching values in file 2 for some reason. maybe they weren't passed through nreff?
                 while (l1) {
@@ -488,9 +492,6 @@ public:
             }
         }
         do_diff();
-
-        dynxdfs[0].trace_state("File 1 after final do_diff");
-        dynxdfs[1].trace_state("File 2 after final do_diff");
 
         while (l1 < dynxdfs[0].size() || l2 < dynxdfs[1].size()) {
             co_yield get_diff_for(l1, l2);
@@ -543,7 +544,7 @@ private:
                     window.end()
                 }
         );
-        dynxdfs[1].extend_post(true);
+        dynxdfs[1].extend_post(&xp, true);
         return dynxdfs[1].size();
     }
     void do_diff()
@@ -720,7 +721,7 @@ public:
         static thread_local std::array<char,1024*16> storage;
         auto storage_end = storage.begin();
 
-        AsymmetricStreamingXDiff xdiff(a, NEED_MINIMAL | IGNORE_CR_AT_EOL/* | HISTOGRAM_DIFF*/);
+        AsymmetricStreamingXDiff xdiff(a, NEED_MINIMAL | IGNORE_CR_AT_EOL | HISTOGRAM_DIFF);
         auto b = [&]()->zinc::generator<std::string_view> {
             std::string b;
             //b.resize(2);
