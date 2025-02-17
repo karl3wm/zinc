@@ -190,7 +190,7 @@ public:
             // where this happens frequently or readily.
             // it's better to estimate more lines at the start, because
             // growing the hash table means reseating everything
-            assert(narec < rhash.size() && "line estimate was too low by a factor of at least 2");
+            /*dbg?*/ assert(narec < rhash.size() && "line estimate was too low by a factor of at least 2");
             hbits = xdl_hashbits((unsigned int) narec);
             rhash.clear();
             rhash.resize(1 << hbits);
@@ -306,18 +306,12 @@ public:
             }
         }
         nreff -= nreff_off;
-        // vector would make more sense than valarray for rindex. modern compilers vectorize simple arithmetic in loops.
-        //if (rindex_tmp.size() < (size_t)nreff) {
-        //    rindex_tmp.resize((size_t)nreff);
-        //}
-        //rindex_tmp = rindex[std::slice((size_t)nreff_off, (size_t)nreff, 1)];
-        //rindex_tmp -= lines;
-        //rindex[std::slice(0, (size_t)nreff, 1)] = rindex_tmp;
         rindex.erase(rindex.begin(), rindex.begin() + nreff_off);
-        // uhh does this get vectorized? or is it too in-place?
+        // uhh does this get vectorized? or is it too in-place? what are the right codelines here?
         for (size_t i = 0; i < (size_t)nreff; ++ i) {
             rindex[i] -= lines;
         }
+        ha.erase(ha.begin(), ha.begin() + nreff_off);
         xdf->rindex = rindex.begin();
         xdf->ha = ha.begin();
         xdf->nreff = nreff;
@@ -438,7 +432,7 @@ public:
                         to_mmfilep<1>(old_file),
                         (XDF_DIFF_ALG(xp.flags) == XDF_HISTOGRAM_DIFF
                          ? XDL_GUESS_NLINES2 : XDL_GUESS_NLINES1)
-                )
+                ) /*dbg*/+ 12
             }, {
                 2,
                 &xe.xdf2,
@@ -479,9 +473,9 @@ public:
             extend_env(new_line);
             if ((ssize_t)dynxdfs[1].size() >= window_size) {
                 do_diff();                
-                for (auto && diff : get_diffs_for(l1, l2)) {
-                    co_yield diff;
-                }
+                dynxdfs[0].trace_state("File 1 after a do_diff");
+                dynxdfs[1].trace_state("File 2 after a do_diff");
+                co_yield get_diff_for(l1, l2);
                 // if l1 or l2 overflows this likely means that file 1 was exhausted while there were still matching values in file 2 for some reason. maybe they weren't passed through nreff?
                 while (l1) {
                     dynxdfs[0].consume();
@@ -499,9 +493,7 @@ public:
         dynxdfs[1].trace_state("File 2 after final do_diff");
 
         while (l1 < dynxdfs[0].size() || l2 < dynxdfs[1].size()) {
-            for (auto && diff : get_diffs_for(l1, l2)) {
-                co_yield diff;
-            }
+            co_yield get_diff_for(l1, l2);
         }
     }
     ~AsymmetricStreamingXDiff()
@@ -509,34 +501,21 @@ public:
         xdl_free_classifier(&cf);
     }
 private:
-    boost::container::static_vector<Diff,2> get_diffs_for(size_t & l1, size_t & l2)
+    Diff get_diff_for(size_t & l1, size_t & l2)
     {
-        boost::container::static_vector<Diff,2> diffs;
-        bool c1 = (l1 < dynxdfs[0].size()) ? dynxdfs[0].chg(l1) : 0;
-        bool c2 = (l2 < dynxdfs[1].size()) ? dynxdfs[1].chg(l2) : 0;
-        switch ((c1 << 1) | c2) {
-        case (1<<1)|1:
-            diffs.emplace_back(DELETE, xe.xdf1, l1);
-            ++ l1;
-            diffs.emplace_back(INSERT, xe.xdf2, l2);
-            ++ l2;
-            break;
-        case (1<<1)|0:
-            diffs.emplace_back(DELETE, xe.xdf1, l1);
-            ++ l1;
-            break;
-        case (0<<1)|1:
-            diffs.emplace_back(INSERT, xe.xdf2, l2);
-            ++ l2;
-            break;
-        case (0<<1)|0:
-            assert(xdfile_line(xe.xdf1,l1) == xdfile_line(xe.xdf2,l2));
-            diffs.emplace_back(EQUAL, xe.xdf1, l1);
-            ++ l1;
-            ++ l2;
-            break;
+        if (l1 < dynxdfs[0].size()) {
+            if (dynxdfs[0].chg(l1)) {
+                return {DELETE, xe.xdf1, l1 ++};
+            }
         }
-        return diffs;
+        if (l2 < dynxdfs[1].size()) {
+            if (dynxdfs[1].chg(l2)) {
+                return {INSERT, xe.xdf2, l2 ++};
+            }
+        }
+        assert(l1 < dynxdfs[0].size() && l2 < dynxdfs[1].size());
+        assert(xdfile_line(xe.xdf1,l1) == xdfile_line(xe.xdf2,l2));
+        return {EQUAL, xe.xdf2, (l1 ++, l2 ++)};
     }
     //void extend_env(unsigned int lines_estimate, std::span<char> data)
     //{
@@ -741,7 +720,7 @@ public:
         static thread_local std::array<char,1024*16> storage;
         auto storage_end = storage.begin();
 
-        AsymmetricStreamingXDiff xdiff(a);
+        AsymmetricStreamingXDiff xdiff(a, NEED_MINIMAL | IGNORE_CR_AT_EOL/* | HISTOGRAM_DIFF*/);
         auto b = [&]()->zinc::generator<std::string_view> {
             std::string b;
             //b.resize(2);
