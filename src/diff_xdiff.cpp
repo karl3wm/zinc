@@ -3,7 +3,6 @@
 #include <cstdlib>
 #include <stdlib.h>
 
-
 extern "C" {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsign-conversion"
@@ -39,6 +38,7 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cmath>
 #include <iostream> //dbg
@@ -47,7 +47,6 @@ extern "C" {
 #include <string_view>
 #include <vector>
 
-#include <boost/container/devector.hpp>
 #include <boost/container/static_vector.hpp>
 
 unsigned long enum XDFLAGS {
@@ -108,6 +107,106 @@ std::string_view xdfile_line(xdfile_t & xdf, size_t idx)
 inline void _0(bool success, char const * msg)
 { if (!success) { throw std::runtime_error(msg); } }
 
+template <typename T>
+class queuevector  // a queue with contiguous storage
+{
+public:
+    T* begin() { return std::to_address(vec.begin()) + off; }
+    T const* begin() const { return std::to_address(vec.begin()) + off; }
+    T* end() { return std::to_address(vec.end()); }
+    T const* end() const { return std::to_address(vec.end()); }
+    T& operator[](size_t i) { return *(begin() + i); }
+    T const& operator[](size_t i) const { return *(begin() + i); }
+    T& front() { return vec[off]; }
+    T const& front() const { return *begin(); }
+    T& back() { return vec[vec.size() - 1]; }
+    T const& back() const { return vec[vec.size() - 1]; }
+    size_t size() const { return vec.size() - off; }
+    bool empty() const { return size() == 0; }
+    T* data() { return begin(); }
+    T const* data() const { return begin(); }
+    void push_back(T const&elem) { insert(end(), &elem, &elem+1); }
+    void pop_front() { ++off; }
+    size_t capacity_alloc() const { return vec.capacity(); }
+    size_t capacity_copy() const { return vec.capacity() - off; }
+    void resize(size_t size)
+    {
+        if (size > vec.capacity()) {
+            // new storage is strictly needed
+            reserve(std::bit_ceil(size));
+        } else if (size + off > vec.capacity()) {
+            // changing begin() is still strictly needed
+            std::move(begin(), end(), vec.begin());
+            off = 0;
+        }
+        vec.resize(off + size);
+    }
+    void insert(T* pos, T const* begin, T const*end)
+    {
+        assert(begin < end);
+        size_t insertion_size = (size_t)(end - begin);
+        size_t new_size = insertion_size + size();
+        if (new_size > vec.capacity()) {
+            // new storage is strictly needed
+            std::vector<T> vec2;
+            vec2.reserve(std::bit_ceil(new_size));
+
+            vec2.insert(vec2.end(), std::make_move_iterator(this->begin()), std::make_move_iterator(pos));
+            vec2.insert(vec2.end(), begin, end);
+            vec2.insert(vec2.end(), std::make_move_iterator(pos), std::make_move_iterator(this->end()));
+
+            vec = std::move(vec2);
+            off = 0;
+        } else if (
+                new_size + off > vec.capacity()
+        ) {
+            // adjusting begin() is still strictly needed
+            T* posend = pos + insertion_size;
+            T* adjpos = pos - off;
+            T* adjposend = posend - off;
+            std::move(this->begin(), pos, vec.begin());
+            if (adjposend < pos) {
+                std::copy(begin, end, adjpos);
+                // this move is not needed if off is clamped to size or something
+                std::move(posend, this->end(), adjposend);
+            } else if (adjposend == pos) {
+                std::copy(begin, end, adjpos);
+            } else if (adjposend > posend) {
+                T const* mid = begin + (posend - adjpos);
+                std::copy(begin, mid, adjpos);
+                vec.insert(typename std::vector<T>::iterator(posend), mid, end);
+                assert(!"can you review this branch for correctness");
+            }
+            off = 0;
+        } else {
+            // could check here if user would want to adjust off instead of size
+            vec.insert(typename std::vector<T>::iterator(pos), begin, end);
+        }
+    }
+    void erase(T* begin, T* end) {
+        if (begin - this->begin() < this->end() - end) {
+            // less data is copied if off is adjusted than if size is
+            std::move_backward(this->begin(), begin, end);
+            off = (size_t)(end + off - begin); // off += end - begin
+        } else {
+            // less data is copied if size is adjusted than if off is
+            vec.erase(typename std::vector<T>::iterator(begin), typename std::vector<T>::iterator(end));
+        }
+    }
+    void reserve(size_t size) {
+        if (size > vec.capacity()) {
+            std::vector<T> vec2;
+            vec2.reserve(size);
+            vec2.insert(vec2.end(), std::make_move_iterator(begin()), std::make_move_iterator(end()));
+            vec = std::move(vec2);
+            off = 0;
+        }
+    }
+private:
+    std::vector<T> vec;
+    size_t off;
+};
+
 }
 
 enum DiffType { EQUAL, INSERT, DELETE };
@@ -139,11 +238,21 @@ class ChaStore
     // it does not appear to manage user offsets within its storage
 };
 
+struct classifier_data
+{
+    xdlclassifier_t cf;
+    std::vector<xdlclass_t*> consumed_rchash; // references to consumed memory are still kept for their line counts but no longer have valid buffers to compare
+    operator xdlclassifier_t&() { return cf; }
+    operator xdlclassifier_t*() { return &cf; }
+    auto operator&() { return &cf;}
+    auto operator->() { return &cf;}
+};
+
 class DynamicXDFile
 {
 public:
-    DynamicXDFile(unsigned int pass, xdfile_t * xdf, xdlclassifier_t * cf, long line_estimate)
-    : xdf(xdf), cf(cf), pass(pass)
+    DynamicXDFile(unsigned int pass, xdfile_t * xdf, classifier_data & cfd, long line_estimate)
+    : xdf(xdf), cf(cfd), pass(pass)
     {
         /* xdl_prepare_ctx */
 	    mustbe0(xdl_cha_init(&xdf->rcha, sizeof(xrecord_t), line_estimate / 4 + 1));
@@ -172,6 +281,10 @@ public:
     void shift_line_ptrs(ptrdiff_t offset)
     {
         for (auto * rec : recs) {
+            auto rcrec = cf->rcrecs[rec->ha];
+            if (rcrec->line == rec->ptr) {
+                rcrec->line += offset;
+            }
             rec->ptr += offset;
         }
     }
@@ -185,14 +298,43 @@ public:
 
         unsigned int narec = (unsigned)recs.size() + (unsigned)line_estimate;
 
-        if (narec >= rhash.size()) {
-            // this block always asserts to detect situations
-            // where this happens frequently or readily.
-            // it's better to estimate more lines at the start
-
+        if (narec * 2 <= cf->hsize) {
             // notably the classifier hash table is not yet grown
-            ///*dbg*/assert(narec < cf->hsize && "line estimate was too short by a factor of at least 2");
+            ///*dbg*/assert(narec * 2 < cf->hsize && "line estimate was too short by a factor of at least 2");
 
+            /*
+             * notes on classifier state
+             * - hsize appears to hold the size of cf->rchash
+             * - xdl_init_classifier inits hbits and hsize based on the passed line count
+             * - it also allocates cf->rchash to hsize
+             * hsize is not otherwise used in xprepare that i see
+             * hbits is used to calculate the hash idx when rec is classified
+             * so if hbits is changed we could:
+             * - resize cf->rchash
+             * - reseat everything into cf->rchash
+             *      - each rcrec->ha inside cf->rcrecs up to cf->count
+             *        has the ->ha used to make the rchash index
+             */
+            cf->hbits = xdl_hashbits((unsigned int) narec * 4);
+            cf->hsize = 1 << cf->hbits;
+            xdl_free(cf->rchash);
+            XDL_CALLOC_ARRAY(cf->rchash, (size_t)cf->hsize);
+            cf.consumed_rchash.clear();
+            cf.consumed_rchash.resize((size_t)cf->hsize);
+            for (auto it = cf->rcrecs; it != &cf->rcrecs[cf->count]; ++ it) {
+                auto rcrec = *it;
+                long hi = (long) XDL_HASHLONG(rcrec->ha, cf->hbits);
+                if (rcrec->line) {
+                    rcrec->next = cf->rchash[hi];
+                    cf->rchash[hi] = rcrec;
+                } else {
+                    rcrec->next = cf.consumed_rchash[(size_t)hi];
+                    cf.consumed_rchash[(size_t)hi] = rcrec;
+                }
+            }
+        }
+
+        if (narec >= rhash.size()) {
             /*
              * note: i'm actually not seeing that rhash is used anywhere.
              */
@@ -205,26 +347,56 @@ public:
             }
         }
 
-        recs.resize_back(narec);
+        recs.resize(narec);
 
         nrec = xdf->nrec;
         for (cur = &*data.begin(), top = &*data.end(); cur < top; ) {
             prev = cur;
             hav = xdl_hash_record(&cur, top, (long)xpp->flags);
-            recs.resize_back(narec = (unsigned int)nrec + 1);
+            recs.resize(narec = (unsigned int)nrec + 1);
             cantbe0(crec = xdl_cha_alloc(&xdf->rcha));
             crec->ptr = prev;
             crec->size = (long) (cur - prev);
             crec->ha = hav;
             recs[(size_t)nrec++] = crec;
-            mustbe0(xdl_classify_record(pass, cf, rhash.data(), hbits, crec));
+
+            /* if the classifier entry hash been consumed, recover it, then classify the line. otherwise, classify the line, then update the line pointer in case old lines are consumed. */
+            auto rchash_hi = (long) XDL_HASHLONG(crec->ha, cf->hbits);
+            auto * rcrec_link = &cf.consumed_rchash[(size_t)rchash_hi];
+            xdlclass_t * rcrec;
+            while (*rcrec_link) {
+                rcrec = *rcrec_link;
+                if (rcrec->ha == crec->ha && rcrec->size == crec->size) {
+                    break;
+                };
+            }
+            if (*rcrec_link) {
+                assert(rcrec->next == nullptr && "hash collision in consumed lines; should check for existing matching entry before using consumed entry");
+                *rcrec_link = rcrec->next;
+
+                rcrec->line = crec->ptr;
+
+                rcrec->next = cf->rchash[rchash_hi];
+                cf->rchash[rchash_hi] = rcrec;
+
+                mustbe0(xdl_classify_record(pass, cf, rhash.data(), hbits, crec));
+            } else {
+
+                mustbe0(xdl_classify_record(pass, cf, rhash.data(), hbits, crec));
+
+                /* ensure the line pointer points to the latest line data so old data can be deallocated */
+                rcrec = cf->rcrecs[crec->ha];
+                assert(rcrec->ha == hav);
+                assert(std::string_view(rcrec->line, (size_t)rcrec->size) == std::string_view(crec->ptr, (size_t)crec->size));
+                rcrec->line = crec->ptr;
+            }
         }
 
-        rchg.resize_back((size_t)nrec + 2);
+        rchg.resize((size_t)nrec + 2);
 	    if ((XDF_DIFF_ALG(xpp->flags) != XDF_PATIENCE_DIFF) &&
     	    (XDF_DIFF_ALG(xpp->flags) != XDF_HISTOGRAM_DIFF)) {
-            rindex.resize_back((size_t)nrec + 1);
-            ha.resize_back((size_t)nrec + 1);
+            rindex.resize((size_t)nrec + 1);
+            ha.resize((size_t)nrec + 1);
     	}
 
         xdf->nrec = nrec;
@@ -257,7 +429,7 @@ public:
         			xdf->ha[nreff] = (*recs)->ha;
                 }
             } else {
-                dis.resize_back((size_t)(xdf->dend + 1));
+                dis.resize((size_t)(xdf->dend + 1));
 
                 for (i = start, recs = &xdf->recs[start]; i <= xdf->dend; i++, recs++) {
                     rcrec = cf->rcrecs[(*recs)->ha];
@@ -292,12 +464,12 @@ public:
             xdf->dstart = 0;
         }
         xdf->dend -= lines;
-        /* because an nreff heuristic uses the total count of matched lines,
-         * it seemed to make sense to not consume classifier entries
         for (long i = 0 ; i < lines; ++ i) {
             classifier_consume_(recs[(size_t)i]);
         }
-        */
+        for (auto idx = 0 ; idx < lines; ++ idx) {
+            std::cerr << "consuming rec ptr " << (void*)recs[(size_t)idx]->ptr << std::endl;
+        }
         recs.erase(recs.begin(), recs.begin() + lines);
         xdf->recs = recs.begin();
         rchg.erase(rchg.begin(), rchg.begin() + lines);
@@ -382,40 +554,70 @@ private:
     void classifier_consume_(xrecord_t * rec)
     {
         /* xdl_classify_record */
+        long rhash_hi = (long) XDL_HASHLONG(rec->ha, xdf->hbits);
+
         // look up record
         auto* rcrec = cf->rcrecs[rec->ha];
+        assert(std::string_view(rcrec->line, (size_t)rcrec->size) == std::string_view(rec->ptr, (size_t)rec->size));
 
-        // update line count
-        (pass == 1) ? rcrec->len1-- : rcrec->len2--;
-        
-        // remove from rhash
-        long rhash_hi = (long) XDL_HASHLONG(rec->ha, xdf->hbits);
-        auto rhash_it = rhash[(size_t)rhash_hi];
-        if (rhash_it == rec) {
-            rhash[(size_t)rhash_hi] = rec->next;
-        } else {
-            while (rhash_it->next != rec) {
-                assert(rhash_it->next);
-                rhash_it = rhash_it->next;
+        // line count not decremented in order to keep whole-file data accurate for heuristics
+        //// update line count
+        //(pass == 1) ? rcrec->len1-- : rcrec->len2--;
+
+        // if the class record is using this line's buffer, change it
+        if (rcrec->line == rec->ptr) {
+            xrecord_t *it_rec;
+            for (
+                xrecord_t **rhash_it = &rhash[(size_t)rhash_hi];
+                (it_rec = *rhash_it);
+                rhash_it = &it_rec->next
+            ) {
+                if (it_rec != rec && it_rec->ha == rec->ha) {
+                    break;
+                }
             }
-            rhash_it->next = rec->next;
+            if (it_rec) {
+                // another line is holding this data -- update the consumed buffer to point to it
+                assert(it_rec->size == rec->size);
+                assert(std::string_view(it_rec->ptr, (size_t)it_rec->size) == std::string_view(rec->ptr, (size_t)rec->size));
+                rcrec->line = it_rec->ptr;
+            } else {
+                // no other line is holding this data -- move the consumed record to a stash
+                long rchash_hi = (long) XDL_HASHLONG(rcrec->ha, cf->hbits);
+                xdlclass_t ** prev;
+                for (
+                    prev = &cf->rchash[rchash_hi];
+                    *prev != rcrec;
+                    prev = &(*prev)->next
+                ) {}
+                *prev = rcrec->next;
+                rcrec->line = nullptr;
+                rcrec->next = cf.consumed_rchash[(size_t)rchash_hi];
+                cf.consumed_rchash[(size_t)rchash_hi] = rcrec;
+            }
         }
 
-        // the rcrec is not consumed if unused at this time.
-        // another line may still hash to its value.
+        // remove from rhash
+        xrecord_t **prev;
+        for (
+            prev = &rhash[(size_t)rhash_hi];
+            *prev != rec;
+            prev = &(*prev)->next
+        ) { }
+        *prev = rec->next;
     }
     xdfile_t * xdf;
-    xdlclassifier_t * cf;
+    classifier_data & cf;
     unsigned int pass;
     unsigned int hbits;
     std::vector<xrecord_t*> rhash; // reverse hash lookup, constant size
-    boost::container::devector<xrecord_t*> recs; // canonical line list, points into xdf->rcha
-    boost::container::devector<char> rchg; // canonical line change list
-    boost::container::devector<long> rindex;
-    boost::container::devector<unsigned long> ha;
+    queuevector<xrecord_t*> recs; // canonical line list, points into xdf->rcha
+    queuevector<char> rchg; // canonical line change list
+    queuevector<long> rindex;
+    queuevector<unsigned long> ha;
 
     long mlim;
-    boost::container::devector<char> dis;
+    queuevector<char> dis;
 };
 
 class AsymmetricStreamingXDiff
@@ -423,6 +625,7 @@ class AsymmetricStreamingXDiff
 public:
     AsymmetricStreamingXDiff(
         std::string_view old_file,
+        ssize_t window_size = -1,
         unsigned long xdflags = NEED_MINIMAL | IGNORE_CR_AT_EOL /*| HISTOGRAM_DIFF*/ | INDENT_HEURISTIC
     ) : xp{
           .flags = xdflags,
@@ -434,7 +637,7 @@ public:
             {
                 1,
                 &xe.xdf1,
-                &cf,
+                cf,
                 /* xdl_prepare_env */
                 xdl_guess_lines(
                         to_mmfilep<1>(old_file),
@@ -444,56 +647,63 @@ public:
             }, {
                 2,
                 &xe.xdf2,
-                &cf,
-                dynxdfs[0].line_estimate() * 2
+                cf,
+                dynxdfs[0].line_estimate() > window_size
+                    ? dynxdfs[0].line_estimate() * 2
+                    : window_size * 4
             }
         }
     {
-        auto line_estimate = dynxdfs[0].line_estimate();
-
         /* xdl_prepare_env */
-        memset(&cf, 0, sizeof(cf));
+        memset(&cf.cf, 0, sizeof(cf.cf));
 
-        mustbe0(xdl_init_classifier(&cf, line_estimate * 2 + 1, (long)xp.flags));
+        mustbe0(xdl_init_classifier(&cf, dynxdfs[0].line_estimate() + dynxdfs[1].line_estimate() + 1, (long)xp.flags));
+        cf.consumed_rchash.clear();
+        cf.consumed_rchash.resize((size_t)cf->hsize);
 
         /* ... */
-        dynxdfs[0].extend_pre(&xp, line_estimate, old_file);
+        dynxdfs[0].extend_pre(&xp, dynxdfs[0].line_estimate(), old_file);
         dynxdfs[0].extend_post(&xp, false);
 
         dynxdfs[1].extend_pre(&xp, 0, {});
         dynxdfs[1].extend_post(&xp, false);
-    }
-    zinc::generator<Diff> diff(zinc::generator<std::string_view> against, ssize_t window_size = -1)
-    {
-        if (window_size == -1) {
+
+        if (window_size < 0) {
             window_size = std::max({
                     (ssize_t)std::sqrt(dynxdfs[0].size()) + 1,
                     (ssize_t)std::sqrt(dynxdfs[0].line_estimate()) + 1,
                     (ssize_t)7
             });
         }
-        auto & f0 = dynxdfs[0];
-        if (f0.size()) {
-            window.reserve((size_t)(
-                        (double)(f0[f0.size() - 1].end() - f0[0].begin()) /
-                            (double)f0.size() * (double)window_size * 2
-            ));
-        }
+        this->window_size = (size_t)window_size;
+    }
+    zinc::generator<Diff> diff(zinc::generator<std::string_view> against)
+    {
+        //auto & f0 = dynxdfs[0];
+        //if (f0.size()) {
+        //    window.reserve_back((size_t)(
+        //            (double)(f0[f0.size() - 1].end() - f0[0].begin()) /*bytes size of file 1*/ /
+        //                (double)f0.size() /*lines size of file 1*/ * (double) window_size * 2
+        //    ));
+        //}/*dbg uncomment*/
         size_t l1 = 0, l2 = 0;
+        size_t tot2 = 0;
         for (auto && new_line : against) {
             extend_env(new_line);
-            if ((ssize_t)dynxdfs[1].size() >= window_size) {
-                do_diff();                
+            if (dynxdfs[1].size() >= window_size) {
+                do_diff();
                 co_yield get_diff_for(l1, l2);
                 // if l1 or l2 overflows this likely means that file 1 was exhausted while there were still matching values in file 2 for some reason. maybe they weren't passed through nreff?
                 while (l1) {
                     dynxdfs[0].consume();
                     -- l1;
                 }
+                tot2 += l2;
                 while (l2) {
                     dynxdfs[1].consume();
                     -- l2;
                 }
+                /*dbg: consume window*/
             }
         }
         do_diff();
@@ -523,21 +733,95 @@ private:
         assert(xdfile_line(xe.xdf1,l1) == xdfile_line(xe.xdf2,l2));
         return {EQUAL, xe.xdf2, (l1 ++, l2 ++)};
     }
-    //void extend_env(unsigned int lines_estimate, std::span<char> data)
-    //{
-    //    dynxdfs[1].extend(lines_estimate, data);
-    //    // lets update nreff
-    //}
+    void assert_no_dangling_pointers() {
+        // Macro to assert pointer validity, with dynamic error message using variable name
+        #define ASSERT_POINTER_VALID(ptr, store1, store2) \
+            assert(((ptr) >= (store1).data() && (ptr) < (store1).data() + (store1).size()) || \
+                   ((ptr) >= (store2).data() && (ptr) < (store2).data() + (store2).size()) || \
+                   ! #ptr " is invalid")
+
+        // Helper lambda to iterate over a linked list and perform a custom action
+        auto for_each_in_linked_list = [](xdlclass_t* head, auto&& action) {
+            for (xdlclass_t* node = head; node; node = node->next) {
+                action(node);
+            }
+        };
+
+        // Helper lambda to check if a record exists in a linked list
+        auto linked_list_contains = [&](xdlclass_t* head, xdlclass_t* target) -> bool {
+            bool found = false;
+            for_each_in_linked_list(head, [&](xdlclass_t* node) {
+                if (node == target) {
+                    found = true;
+                }
+            });
+            return found;
+        };
+
+        const auto& window = this->window;
+        const auto old_file = std::string_view(xe.xdf1.recs[0]->ptr, xe.xdf1.recs[xe.xdf1.nrec-1]->ptr+xe.xdf1.recs[xe.xdf1.nrec-1]->size);
+
+
+        // Iterate over both dynxdfs
+        for (size_t xdfi = 0; xdfi < 2; ++ xdfi) {
+            auto xdf = xdfi ? &xe.xdf2 : &xe.xdf1;
+            // Check recs pointers
+            for (xrecord_t** it = xdf->recs; it != xdf->recs + xdf->nrec; ++ it) {
+                auto rec = *it;
+                ASSERT_POINTER_VALID(rec->ptr, window, old_file);
+            }
+        }
+    
+        // Iterate over classifier_data
+        // Check rcrecs array
+        for (long i = 0; i < cf->count; ++i) {
+            xdlclass_t* rcrec = cf->rcrecs[i];
+            if (rcrec) {
+                // Check if the record is in rchash or consumed_rchash
+                bool in_rchash = std::any_of(cf->rchash, cf->rchash + cf->hsize, [&](xdlclass_t* head) {
+                    return linked_list_contains(head, rcrec);
+                });
+    
+                if (in_rchash) {
+                    ASSERT_POINTER_VALID(rcrec->line, window, old_file);
+                } else {
+                    // Ensure the record is in consumed_rchash with line == nullptr
+                    bool in_consumed = std::any_of(cf.consumed_rchash.begin(), cf.consumed_rchash.end(), [&](xdlclass_t* head) {
+                        return linked_list_contains(head, rcrec);
+                    });
+                    assert(in_consumed && "rcrec not in rchash or consumed_rchash");
+                    assert(rcrec->line == nullptr && "rcrec in consumed_rchash has line != nullptr");
+                }
+            }
+        }
+    
+        for (long hi = 0; hi < cf->hsize; ++hi) {
+            for_each_in_linked_list(cf->rchash[hi], [&](xdlclass_t* node) {
+                ASSERT_POINTER_VALID(node->line, window, old_file);
+            });
+        }
+        for (size_t hi = 0; hi < cf.consumed_rchash.size(); ++hi) {
+            for_each_in_linked_list(cf.consumed_rchash[hi], [&](xdlclass_t* node) {
+                assert(node->line == nullptr && "Line pointer in consumed_rchash is not null");
+            });
+        }
+        #undef ASSERT_POINTER_VALID
+    }
     size_t extend_env(std::string_view line) {
         size_t mark_b = window.size();
         //size_t mark_l = dynxdfs[1].size();
         
         assert(line.find('\n') == std::string_view::npos);
+        assert_no_dangling_pointers();
         auto window_begin = window.begin();
+        auto window_capacity = window.capacity_copy();
         window.insert(window.end(), line.begin(), line.end());
         window.push_back('\n');
+        // dbg it doesn't look like window is being consumed
         if (window.begin() != window_begin) {
+            std::cerr << "WINDOW RESIZE" << window_capacity << "=>" << window.capacity_copy() << std::endl;
             dynxdfs[1].shift_line_ptrs(window.begin() - window_begin);
+            assert_no_dangling_pointers();
             window_begin = window.begin();
         }
 
@@ -608,13 +892,12 @@ private:
     }
     xpparam_t xp;
     xdfenv_t xe;
-    boost::container::devector<char> window;
+    size_t window_size;
+    queuevector<char> window;
     std::vector<long> kvd; /* stores path vectors in default algorithm */
     DynamicXDFile dynxdfs[2];
 
-    xdlclassifier_t cf;
-    std::vector<xdlclass_t*> cf_rchash;
-    std::vector<xdlclass_t*> cf_rcrecs;
+    classifier_data cf;
     std::vector<xrecord_t*> xdf2_rhash;
     std::vector<xrecord_t*> xdf2_recs;
     std::vector<char> xdf2_rchg;
@@ -726,7 +1009,7 @@ public:
         static thread_local std::array<char,1024*16> storage;
         auto storage_end = storage.begin();
 
-        AsymmetricStreamingXDiff xdiff(a, NEED_MINIMAL | IGNORE_CR_AT_EOL /*| HISTOGRAM_DIFF*/);
+        AsymmetricStreamingXDiff xdiff(a, (ssize_t)b_.size() / 2, NEED_MINIMAL | IGNORE_CR_AT_EOL /*| HISTOGRAM_DIFF*/);
         auto b = [&]()->zinc::generator<std::string_view> {
             std::string b;
             //b.resize(2);
@@ -737,7 +1020,7 @@ public:
                 co_yield b;
             }
         };
-        for (auto && diff : xdiff.diff(b(), (ssize_t)b_.size())) {
+        for (auto && diff : xdiff.diff(b())) {
 
             std::copy(diff.text.begin(), diff.text.end(), storage_end);
             std::string_view text(storage_end, storage_end + diff.text.size());
@@ -820,18 +1103,30 @@ int main() {
 }
 //*0
 
-extern "C" const char *__asan_default_options() {
-    return
-        //"help=1" ":" // list options on startup
-        //"include_if_exists=" ":" // read more options from the given file/_if it exists
-        "check_initialization_order=true"
-        ":"
-        "detect_invalid_pointer_pairs=2"
-        ":"
-        "strict_string_checks=true"
-        ":"
-        "abort_on_error=true"
-        ":"
-        "halt_on_error=false"
+#define __COMMON_SAN_DEFAULT_OPTIONS   \
+        /* list options on startup     \
+        "help=1" ":" */                \
+        /* read more options from file \
+        "include_if_exists=" ":" */    \
+        "print_stacktrace=true"        \
+        ":"                            \
+        "report_error_type=true"       \
+        ":"                            \
+        "strict_string_checks=true"    \
+        ":"                            \
+        "abort_on_error=true"          \
+        ":"                            \
+        "halt_on_error=true"
+
+extern "C" char const*__asan_default_options()
+{
+    return __COMMON_SAN_DEFAULT_OPTIONS
+        ":check_initialization_order=true"
+        ":detect_invalid_pointer_pairs=2"
+    ;
+}
+extern "C" char const*__ubsan_default_options()
+{
+    return __COMMON_SAN_DEFAULT_OPTIONS
     ;
 }
