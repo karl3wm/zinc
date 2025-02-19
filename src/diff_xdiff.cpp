@@ -362,17 +362,20 @@ public:
 
             /* if the classifier entry hash been consumed, recover it, then classify the line. otherwise, classify the line, then update the line pointer in case old lines are consumed. */
             auto rchash_hi = (long) XDL_HASHLONG(crec->ha, cf->hbits);
-            auto * rcrec_link = &cf.consumed_rchash[(size_t)rchash_hi];
+            xdlclass_t ** prev;
             xdlclass_t * rcrec;
-            while (*rcrec_link) {
-                rcrec = *rcrec_link;
+            for (
+                prev = &cf.consumed_rchash[(size_t)rchash_hi];
+                (rcrec = *prev);
+                prev = &(*prev)->next
+            ) {
                 if (rcrec->ha == crec->ha && rcrec->size == crec->size) {
                     break;
                 };
             }
-            if (*rcrec_link) {
+            if (rcrec) {
                 assert(rcrec->next == nullptr && "hash collision in consumed lines; should check for existing matching entry before using consumed entry");
-                *rcrec_link = rcrec->next;
+                *prev = rcrec->next;
 
                 rcrec->line = crec->ptr;
 
@@ -472,8 +475,6 @@ public:
         }
         recs.erase(recs.begin(), recs.begin() + lines);
         xdf->recs = recs.begin();
-        rchg.erase(rchg.begin(), rchg.begin() + lines);
-        xdf->rchg = rchg.begin() + 1;
         if (!dis.empty()) {
             dis.erase(dis.begin(), dis.begin() + lines);
         }
@@ -492,6 +493,8 @@ public:
         for (size_t i = 0; i < (size_t)nreff; ++ i) {
             rindex[i] -= lines;
         }
+        rchg.erase(rchg.begin(), rchg.begin() + nreff_off);
+        xdf->rchg = rchg.begin() + 1;
         ha.erase(ha.begin(), ha.begin() + nreff_off);
         xdf->rindex = rindex.begin();
         xdf->ha = ha.begin();
@@ -759,7 +762,7 @@ private:
         };
 
         const auto& window = this->window;
-        const auto old_file = std::string_view(xe.xdf1.recs[0]->ptr, xe.xdf1.recs[xe.xdf1.nrec-1]->ptr+xe.xdf1.recs[xe.xdf1.nrec-1]->size);
+        const std::string_view old_file = xe.xdf1.nrec ? std::string_view(xe.xdf1.recs[0]->ptr, xe.xdf1.recs[xe.xdf1.nrec-1]->ptr+xe.xdf1.recs[xe.xdf1.nrec-1]->size) : std::string_view();
 
 
         // Iterate over both dynxdfs
@@ -839,6 +842,9 @@ private:
     void do_diff()
     {
         auto xe = &this->xe;
+        // for now rchg is wiped as the git/xdiff algorithms assume this
+        std::memset(xe->xdf1.rchg - 1, 0, (size_t)(xe->xdf1.nrec + 2) * sizeof(*xe->xdf1.rchg));
+        std::memset(xe->xdf2.rchg - 1, 0, (size_t)(xe->xdf2.nrec + 2) * sizeof(*xe->xdf2.rchg));
         switch (XDF_DIFF_ALG(xp.flags)) {
         case XDF_PATIENCE_DIFF:
             mustbe0(xdl_do_patience_diff(&xp, xe));
