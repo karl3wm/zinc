@@ -1,0 +1,2 @@
+{"role":"user","content":"hi\n","ts":1.740012184E9}
+{"role":"assistant","content":"","finish_reason":"runtime_error {\"finish_reason\":null,\"index\":0,\"logprobs\":null,\"text\":\"\"}","ts":1.740012185356E9}

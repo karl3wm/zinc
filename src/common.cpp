@@ -1,6 +1,7 @@
 #include <zinc/common.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <vector>
 
@@ -125,6 +126,13 @@ std::string_view replaced(
     return replaced;
 }
 
+std::string_view trim(std::string_view str)
+{
+    char const* start = &*std::find_if_not(str.begin(), str.end(), [](char c){return std::isspace(c);});
+    char const* end = &*std::find_if_not(str.rbegin(), str.rend(), [](char c){return std::isspace(c);}) + 1;
+    return start < end ? std::string_view(start, (size_t)(end - start)) : std::string_view();
+}
+
 generator<std::string_view> shell(std::string_view cmdline_)
 {
     static thread_local std::string cmdline;
@@ -163,7 +171,14 @@ generator<std::string_view> shell(std::string_view cmdline_)
             co_yield std::string_view(buffer).substr(0, (size_t)bytes_read);
         }
         close(pipefd[0]);
-        wait(nullptr);
+
+        int status;
+        waitpid(pid, &status, 0);
+        if (WIFEXITED(status)) {
+            //int exit_status = WEXITSTATUS(status);
+        } else if (WIFSIGNALED(status)) {
+            //std::string info = WTERMSIG(status);
+        }
     }
 }
 

@@ -77,7 +77,7 @@ public:
     };
 
     static Doc decode(std::string_view doc);
-    std::string_view encode() const;
+    std::string_view encode() const; /* could we add indentation here please */
 };
 
 }

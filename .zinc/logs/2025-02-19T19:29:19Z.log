@@ -1,0 +1,4 @@
+{"role":"user","content":"hi\n","ts":1.740011359946E9}
+{"role":"assistant","content":"","finish_reason":"runtime_error {\"finish_reason\":null,\"index\":0,\"logprobs\":null,\"text\":\"\"}","ts":1.740011360393E9}
+{"role":"user","content":"hello?\n","ts":1.740011364648E9}
+{"role":"assistant","content":"","finish_reason":"runtime_error {\"finish_reason\":null,\"index\":0,\"logprobs\":null,\"text\":\"\"}","ts":1.740011365062E9}

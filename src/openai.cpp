@@ -43,10 +43,10 @@ static zinc::generator<std::span<OpenAI::StreamPart>> process_response_lines(zin
 
         if (line.rfind("data: ", 0) == 0) line = line.substr(strlen("data: ")); // SSE prefix
 
-        if (line == "[DONE]") break; // End of stream
+        if (line == "[DONE]") continue;//break; // End of stream
 
         if (line.front() == '{') { // JSON object
-            auto doc = JSON::decode(line);
+            JSON::Doc doc = JSON::decode(line);
             JSON::Array choices;
             try {
                 choices = (*doc)["choices"].array();
@@ -55,7 +55,7 @@ static zinc::generator<std::span<OpenAI::StreamPart>> process_response_lines(zin
                     // got this from targon, could be forwarded from vllm
                     // "{\"message\":\"Failed mid-generation, please retry\",\"object\":\"error\",\"Type\":\"InternalServerError\",\"code\":500}"
                     auto msg = (*doc)["message"].string();
-                    if (msg.find("please retry") != decltype(msg)::npos) {
+                    if (msg.find("please retry") != decltype(msg)::npos || (*doc)["Type"].string() == "APITimeoutError") {
                         throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again));
                     }
                     throw std::runtime_error(std::string(msg));

@@ -7,6 +7,9 @@
 
 namespace zinc {
 
+// => If file lock contention is an issue, a read-only or in-memory mode for the config object would likely alleviate that.
+// => If hardcoded defaults are desired, the config object is designed to use multiple default sources and a shared defaults object could be added.
+
 class Configuration {
 public:
     /*

@@ -35,6 +35,7 @@ std::string_view replaced(
     std::string_view haystack,
     std::span<StringViewPair> replacements
 );
+std::string_view trim(std::string_view text);
 
 // Run some commands in the user's shell
 generator<std::string_view> shell(std::string_view cmdline);

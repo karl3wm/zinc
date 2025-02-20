@@ -1,0 +1,10 @@
+{"role":"user","content":"trim whitespace from both ends of a std::string and from a std::string_view, c++20 or c++23\n","ts":1.74000311416E9}
+{"role":"assistant","content":"","finish_reason":"runtime_error Bad Requeststatus 400: err not enough credits","ts":1.740003114584E9}
+{"role":"assistant","content":"","finish_reason":"runtime_error Bad Requeststatus 400: err not enough credits","ts":1.740003114857E9}
+{"role":"assistant","content":"","finish_reason":"runtime_error Bad Requeststatus 400: err not enough credits","ts":1.740003115827E9}
+{"role":"assistant","content":"","finish_reason":"runtime_error Bad Requeststatus 400: err not enough credits","ts":1.740003116104E9}
+{"role":"assistant","content":"","finish_reason":"runtime_error Bad Requeststatus 400: err not enough credits","ts":1.740003116377E9}
+{"role":"assistant","content":"","finish_reason":"runtime_error Bad Requeststatus 400: err not enough credits","ts":1.740003117408E9}
+{"role":"assistant","content":"","finish_reason":"runtime_error Bad Requeststatus 400: err not enough credits","ts":1.740003117683E9}
+{"role":"assistant","content":"","finish_reason":"runtime_error Bad Requeststatus 400: err not enough credits","ts":1.740003117958E9}
+{"role":"assistant","content":"","finish_reason":"runtime_error Bad Requeststatus 400: err not enough credits","ts":1.740003118237E9}
