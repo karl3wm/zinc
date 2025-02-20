@@ -843,8 +843,10 @@ private:
     {
         auto xe = &this->xe;
         // for now rchg is wiped as the git/xdiff algorithms assume this
-        std::memset(xe->xdf1.rchg - 1, 0, (size_t)(xe->xdf1.nrec + 2) * sizeof(*xe->xdf1.rchg));
-        std::memset(xe->xdf2.rchg - 1, 0, (size_t)(xe->xdf2.nrec + 2) * sizeof(*xe->xdf2.rchg));
+        for (long i=0; i < xe->xdf1.nreff; ++i) xe->xdf1.rchg[xe->xdf1.rindex[i]] = 0;
+        for (long i=0; i < xe->xdf2.nreff; ++i) xe->xdf2.rchg[xe->xdf2.rindex[i]] = 0;
+        //std::memset(xe->xdf1.rchg - 1, 0, (size_t)(xe->xdf1.nrec + 2) * sizeof(*xe->xdf1.rchg));
+        //std::memset(xe->xdf2.rchg - 1, 0, (size_t)(xe->xdf2.nrec + 2) * sizeof(*xe->xdf2.rchg));
         switch (XDF_DIFF_ALG(xp.flags)) {
         case XDF_PATIENCE_DIFF:
             mustbe0(xdl_do_patience_diff(&xp, xe));
