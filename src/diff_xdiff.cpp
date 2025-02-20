@@ -509,6 +509,11 @@ public:
     {
         return xdf->rchg[line];
     }
+    bool has_equal()
+    {
+        auto const end = xdf->rchg + xdf->nrec;
+        return end != std::find(xdf->rchg, end, 0);
+    }
 
     void trace_state(std::string_view context) const
     {
@@ -695,6 +700,10 @@ public:
             extend_env(new_line);
             if (dynxdfs[1].size() >= window_size) {
                 do_diff();
+                if (!dynxdfs[1].has_equal()) {
+                    // we need a match somewhere to show deletes before inserts correctly
+                    continue;
+                }
                 co_yield get_diff_for(l1, l2);
                 // if l1 or l2 overflows this likely means that file 1 was exhausted while there were still matching values in file 2 for some reason. maybe they weren't passed through nreff?
                 while (l1) {
