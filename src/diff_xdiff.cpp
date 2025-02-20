@@ -475,6 +475,8 @@ public:
         }
         recs.erase(recs.begin(), recs.begin() + lines);
         xdf->recs = recs.begin();
+        rchg.erase(rchg.begin(), rchg.begin() + lines);
+        xdf->rchg = rchg.begin() + 1;
         if (!dis.empty()) {
             dis.erase(dis.begin(), dis.begin() + lines);
         }
@@ -493,8 +495,6 @@ public:
         for (size_t i = 0; i < (size_t)nreff; ++ i) {
             rindex[i] -= lines;
         }
-        rchg.erase(rchg.begin(), rchg.begin() + nreff_off);
-        xdf->rchg = rchg.begin() + 1;
         ha.erase(ha.begin(), ha.begin() + nreff_off);
         xdf->rindex = rindex.begin();
         xdf->ha = ha.begin();
