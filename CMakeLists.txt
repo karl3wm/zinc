@@ -9,9 +9,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Options for enabling AddressSanitizer and tests
 option(ENABLE_ASAN "Enable AddressSanitizer" ON)
 option(ENABLE_TESTS "Enable building and running tests" ON)
+option(USE_PYTHON_EMBEDDED "Use embedded Python interpreter" ON)
 
 # Find Boost components required for the main library
 find_package(Boost 1.81.0 REQUIRED COMPONENTS url json)
@@ -56,10 +56,26 @@ if(ENABLE_TESTS)
 endif()
 
 # Create the main library
-file(GLOB LIB_SOURCES "src/*.cpp")
+file(GLOB LIB_SOURCES RELATIVE ${CMAKE_SOURCE_DIR} CONFIGURE_DEPENDS "src/*.cpp")
+
+set(LIB_DEPENDENCIES
+    ${Boost_URL_LIBRARY}
+    ${Boost_JSON_LIBRARY}
+    ${OPENSSL_LIBRARIES}
+)
+
+if (USE_PYTHON_EMBEDDED)
+    list(REMOVE_ITEM LIB_SOURCES src/python_subprocess.cpp)
+    find_package(Python REQUIRED COMPONENTS Development.Embed)
+    list(APPEND LIB_DEPENDENCIES Python::Python)
+else ()
+    list(REMOVE_ITEM LIB_SOURCES src/python_embedded.cpp)
+    find_package(Python REQUIRED COMPONENTS Interpreter)
+endif ()
+
 add_library(zinc SHARED ${LIB_SOURCES})
 target_include_directories(zinc PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(zinc PRIVATE ${Boost_URL_LIBRARY} ${Boost_JSON_LIBRARY} ${OPENSSL_LIBRARIES})
+target_link_libraries(zinc PRIVATE ${LIB_DEPENDENCIES})
 
 # Create a separate library target for xdiff
 file(GLOB XDIFF_SOURCES "third_party/xdiff/*.c")
